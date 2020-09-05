@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RelaNet\RelaNet.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="RelaStructures">
+      <HintPath>..\ExternalDLLs\RelaStructures.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>
