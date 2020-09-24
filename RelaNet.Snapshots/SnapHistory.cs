@@ -16,6 +16,10 @@ namespace RelaNet.Snapshots
 
         public int PoolId = 0;
 
+        public const byte FlagEmpty = 0;
+        public const byte FlagGold = 1; // from server
+        public const byte FlagSilver = 2; // extrapolated, we made it up, it's fiction
+        public const byte FlagDeghosted = 3;
 
         public SnapHistory(int length)
         {
@@ -27,7 +31,7 @@ namespace RelaNet.Snapshots
         public void Clear()
         {
             for (int i = 0; i < Flags.Length; i++)
-                Flags[i] = 0;
+                Flags[i] = FlagEmpty;
         }
 
         public int GetPoolIndex()
@@ -42,11 +46,7 @@ namespace RelaNet.Snapshots
 
         public int FindIndex(ushort timestamp)
         {
-            int i = 0;
-            // okay so the hard part here is, what if the timestamps are more than
-            // length apart?
-
-            int dif = timestamp - Timestamps[LeadingIndex];
+            return LeadingIndex + (timestamp - Timestamps[LeadingIndex]);
         }
     }
 }

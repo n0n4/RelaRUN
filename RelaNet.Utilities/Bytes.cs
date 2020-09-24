@@ -41,6 +41,60 @@ namespace RelaNet.Utilities
 
             //return BitConverter.ToUInt16(msg, index);
         }
+        
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteFloat(byte[] msg, float val, int index)
+        {
+            // TODO: does this need to account for endianness?
+            FloatConverter fc = new FloatConverter();
+            fc.FloatValue = val;
+            msg[index] = fc.Byte0;
+            msg[index + 1] = fc.Byte1;
+            msg[index + 2] = fc.Byte2;
+            msg[index + 3] = fc.Byte3;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static float ReadFloat(byte[] msg, int index)
+        {
+            FloatConverter fc = new FloatConverter();
+            fc.Byte0 = msg[index];
+            fc.Byte1 = msg[index + 1];
+            fc.Byte2 = msg[index + 2];
+            fc.Byte3 = msg[index + 3];
+            return fc.FloatValue;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteDouble(byte[] msg, double val, int index)
+        {
+            // TODO: does this need to account for endianness?
+            DoubleConverter dc = new DoubleConverter();
+            dc.DoubleValue = val;
+            msg[index] = dc.Byte0;
+            msg[index + 1] = dc.Byte1;
+            msg[index + 2] = dc.Byte2;
+            msg[index + 3] = dc.Byte3;
+            msg[index + 4] = dc.Byte4;
+            msg[index + 5] = dc.Byte5;
+            msg[index + 6] = dc.Byte6;
+            msg[index + 7] = dc.Byte7;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static double ReadDouble(byte[] msg, int index)
+        {
+            DoubleConverter dc = new DoubleConverter();
+            dc.Byte0 = msg[index];
+            dc.Byte1 = msg[index + 1];
+            dc.Byte2 = msg[index + 2];
+            dc.Byte3 = msg[index + 3];
+            dc.Byte4 = msg[index + 4];
+            dc.Byte5 = msg[index + 5];
+            dc.Byte6 = msg[index + 6];
+            dc.Byte7 = msg[index + 7];
+            return dc.DoubleValue;
+        }
 
         public static int GetStringLength(string s)
         {
