@@ -13,11 +13,9 @@ namespace RelaNet.DynamicDatas.UT
         private void TestEntry(DynamicDataEntry entry)
         {
             DynamicDataEntry secondEntry = new DynamicDataEntry(entry.DataType);
-
-            int npackets = entry.GetPacketCount();
+            
             entry.BeginWrite();
-
-            for (int i = 0; i < npackets; i++)
+            for (int i = 0; !entry.IsDoneWriting(); i++)
             {
                 int nlen = entry.GetNextPacketLength();
                 int written = entry.WriteNextPacket(Data, 0);
@@ -90,7 +88,7 @@ namespace RelaNet.DynamicDatas.UT
 
             {
                 DynamicDataEntry card = new DynamicDataEntry(tcgCardType);
-                
+
                 card.SetBool("Instant", false);
 
                 card.SetByte("Fire Cost", 2);
@@ -104,6 +102,8 @@ namespace RelaNet.DynamicDatas.UT
 
                 card.SetString("Name", "Silver Spear");
                 card.SetString("Description", "A very straightforward card");
+
+                TestEntry(card);
             }
 
             {
@@ -127,7 +127,47 @@ namespace RelaNet.DynamicDatas.UT
                     "how the system handles splitting very long strings. No difficulties will" +
                     " be undertaken in the effort to reconstruct this string. Living on easy" +
                     " street is all we do here.");
+
+                TestEntry(card);
             }
+        }
+
+        [TestMethod]
+        public void ManyIntsReadWriteTest()
+        {
+            string[] ints = new string[100];
+            for (int i = 0; i < ints.Length; i++)
+                ints[i] = i.ToString();
+
+            DynamicDataType manyIntsType = new DynamicDataType("Many Ints",
+                bools: new string[] { "Face Card" },
+                bytes: new string[] { "Value", "Suit" },
+                ints: ints);
+
+            DynamicDataEntry card1 = new DynamicDataEntry(manyIntsType);
+            card1.SetBool("Face Card", true);
+            card1.SetByte("Value", 12);
+            card1.SetByte("Suit", 3);
+            for (int i = 0; i < ints.Length; i++)
+                card1.SetInt(ints[i], i);
+
+            TestEntry(card1);
+
+            DynamicDataEntry card2 = new DynamicDataEntry(manyIntsType);
+            card2.SetBool("Face Card", false);
+            card2.SetByte("Value", 3);
+            card2.SetByte("Suit", 1);
+            for (int i = 0; i < ints.Length; i++)
+                card1.SetInt(ints[i], i * 2);
+
+            TestEntry(card2);
+
+            DynamicDataEntry card3 = new DynamicDataEntry(manyIntsType);
+            card3.SetBool("Face Card", false);
+            card3.SetByte("Value", 8);
+            card3.SetByte("Suit", 2);
+
+            TestEntry(card3);
         }
     }
 }

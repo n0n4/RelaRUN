@@ -54,33 +54,24 @@ namespace RelaNet.DynamicDatas
         }
 
         // pack/unpack methods
-        public int GetPacketCount()
-        {
-            int len = PackedBoolSize 
-                + (Bytes != null ? Bytes.Length : 0)
-                + (UShorts != null ? (UShorts.Length * 2) : 0)
-                + (Ints != null ? (Ints.Length * 4) : 0)
-                + (Floats != null ? (Floats.Length * 4) : 0)
-                + (Doubles != null ? (Doubles.Length * 8) : 0)
-                + TotalStringLengths;
-
-            return (EntryPacketSplitSize + (len - (len % EntryPacketSplitSize))) / EntryPacketSplitSize;
-        }
-
-        private int WritingPacket = 0;
+        #region packing
         private int WritingCurrentItem = 0;
         private int WritingStringDepth = 0;
+
+        public bool IsDoneWriting()
+        {
+            return WritingCurrentItem == DataType.TotalCount;
+        }
+
         public void BeginWrite()
         {
-            WritingPacket = 0;
             WritingCurrentItem = 0;
             WritingStringDepth = 0;
         }
 
         public int GetNextPacketLength()
         {
-            int len = 0;
-            int bonuslen = 3; // size of the header
+            int len = 3;
 
             int itemMin = 0;
             int itemMax = DataType.Bools;
@@ -94,7 +85,7 @@ namespace RelaNet.DynamicDatas
                 if (item > itemMax)
                     item = itemMax;
                 if (len >= EntryPacketSplitSize)
-                    return len + bonuslen;
+                    return len;
             }
 
             // bytes
@@ -106,7 +97,7 @@ namespace RelaNet.DynamicDatas
                 item += 1;
 
                 if (len >= EntryPacketSplitSize)
-                    return len + bonuslen;
+                    return len;
             }
 
             // ushorts
@@ -118,7 +109,7 @@ namespace RelaNet.DynamicDatas
                 item += 1;
 
                 if (len >= EntryPacketSplitSize)
-                    return len + bonuslen;
+                    return len;
             }
 
             // ints
@@ -130,7 +121,7 @@ namespace RelaNet.DynamicDatas
                 item += 1;
 
                 if (len >= EntryPacketSplitSize)
-                    return len + bonuslen;
+                    return len;
             }
 
             // floats
@@ -142,7 +133,7 @@ namespace RelaNet.DynamicDatas
                 item += 1;
 
                 if (len >= EntryPacketSplitSize)
-                    return len + bonuslen;
+                    return len;
             }
 
             // doubles
@@ -154,7 +145,7 @@ namespace RelaNet.DynamicDatas
                 item += 1;
 
                 if (len >= EntryPacketSplitSize)
-                    return len + bonuslen;
+                    return len;
             }
 
             // strings
@@ -171,17 +162,17 @@ namespace RelaNet.DynamicDatas
                 // need to handle splitting
                 if (possibleLen + len > EntryPacketSplitSize)
                 {
-                    return EntryPacketSplitSize + bonuslen;
+                    return EntryPacketSplitSize;
                 }
 
                 len += possibleLen;
                 item += 1;
 
                 if (len >= EntryPacketSplitSize)
-                    return len + bonuslen;
+                    return len;
             }
 
-            return len + bonuslen;
+            return len;
         }
 
         public int WriteNextPacket(byte[] data, int start)
@@ -318,17 +309,25 @@ namespace RelaNet.DynamicDatas
                 c += 2;
 
                 str = Strings[WritingCurrentItem - itemMin];
-                possibleLen = 2 + StringLengths[WritingCurrentItem - itemMin] - WritingStringDepth;
+                possibleLen = StringLengths[WritingCurrentItem - itemMin] - WritingStringDepth;
 
                 // need to handle splitting
                 if (possibleLen + c > maxc)
                 {
-                    int writelen = maxc - c;
+                    // now the question is, where does this -1 come from?
+                    // well, when we write a string, that process adds a \0 to the end
+                    // so if we don't take 1 off the end now, we'll end up going 1 over
+                    // what we promised to write in the getnextpacketlength
+                    int writelen = maxc - c - 1;
                     // write a substring
                     c += Utilities.Bytes.WriteString(data, str.Substring(WritingStringDepth, writelen), c);
 
                     WritingStringDepth += writelen;
-                    data[totalIndex] = (byte)(WritingCurrentItem - origCurrentItem);
+                    // this +1 is necessary because otherwise the read will end on the 
+                    // item before this one.
+                    // we don't simply add 1 to writingcurrentitem though, because
+                    // we need to continue writing that item (did not write all of it yet)
+                    data[totalIndex] = (byte)((WritingCurrentItem - origCurrentItem) + 1);
                     return c - start;
                 }
 
@@ -362,7 +361,7 @@ namespace RelaNet.DynamicDatas
             c += 2;
 
             byte itemCount = data[c];
-            byte startItemCount = itemCount;
+            int targetItemCount = (int)(itemCount) + itemIndex;
             c++;
 
             // read the body of the message
@@ -382,7 +381,7 @@ namespace RelaNet.DynamicDatas
                 itemIndex += 8;
                 if (itemIndex > itemMax)
                     itemIndex = itemMax;
-                if (itemIndex >= startItemCount)
+                if (itemIndex >= targetItemCount)
                     return c - start;
             }
 
@@ -395,7 +394,7 @@ namespace RelaNet.DynamicDatas
                 c++;
                 itemIndex++;
 
-                if (itemIndex >= startItemCount)
+                if (itemIndex >= targetItemCount)
                     return c - start;
             }
 
@@ -408,7 +407,7 @@ namespace RelaNet.DynamicDatas
                 c += 2;
                 itemIndex++;
 
-                if (itemIndex >= startItemCount)
+                if (itemIndex >= targetItemCount)
                     return c - start;
             }
 
@@ -421,7 +420,7 @@ namespace RelaNet.DynamicDatas
                 c += 4;
                 itemIndex++;
 
-                if (itemIndex >= startItemCount)
+                if (itemIndex >= targetItemCount)
                     return c - start;
             }
 
@@ -434,7 +433,7 @@ namespace RelaNet.DynamicDatas
                 c += 4;
                 itemIndex++;
 
-                if (itemIndex >= startItemCount)
+                if (itemIndex >= targetItemCount)
                     return c - start;
             }
 
@@ -447,7 +446,7 @@ namespace RelaNet.DynamicDatas
                 c += 8;
                 itemIndex++;
 
-                if (itemIndex >= startItemCount)
+                if (itemIndex >= targetItemCount)
                     return c - start;
             }
 
@@ -455,10 +454,11 @@ namespace RelaNet.DynamicDatas
             itemMin += DataType.Doubles;
             itemMax += DataType.Strings;
             int stringDepth = 0;
+            int countRead = 0;
             string str;
             while (itemIndex >= itemMin && itemIndex < itemMax)
             {
-                // write the header
+                // read the header
                 // ushort: string depth
                 stringDepth = Utilities.Bytes.ReadUShort(data, c);
                 c += 2;
@@ -468,7 +468,8 @@ namespace RelaNet.DynamicDatas
                 // need to use that info, so there's no point in doing
                 // so here.
 
-                str = Utilities.Bytes.ReadString(data, c);
+                str = Utilities.Bytes.ReadString(data, c, out countRead);
+                c += countRead;
                 if (stringDepth == 0)
                 {
                     Strings[itemIndex - itemMin] = str;
@@ -488,15 +489,16 @@ namespace RelaNet.DynamicDatas
                 
                 itemIndex++;
 
-                if (itemIndex >= startItemCount)
+                if (itemIndex >= targetItemCount)
                     return c - start;
             }
 
             return c - start;
         }
+        #endregion packing
 
         // accessor methods
-
+        #region accessors
         // bools
         public int GetBoolIndex(string name)
         {
@@ -709,5 +711,6 @@ namespace RelaNet.DynamicDatas
             for (int i = 0; i < Strings.Length; i++)
                 TotalStringLengths += StringLengths[i];
         }
+        #endregion accessors
     }
 }
