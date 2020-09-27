@@ -153,7 +153,7 @@ namespace RelaNet.DynamicDatas
                 len++;
             while (item >= itemMin && item < itemMax)
             {
-                len += (Bytes[item - itemMin] == Entry.Bytes[item - itemMin]
+                len += ((!delta && Bytes[item - itemMin] == Entry.Bytes[item - itemMin])
                     || (delta && !Stales[item]) ? 0 : 2);
                 item += 1;
 
@@ -168,7 +168,7 @@ namespace RelaNet.DynamicDatas
                 len++;
             while (item >= itemMin && item < itemMax)
             {
-                len += (UShorts[item - itemMin] == Entry.UShorts[item - itemMin]
+                len += ((!delta && UShorts[item - itemMin] == Entry.UShorts[item - itemMin])
                     || (delta && !Stales[item]) ? 0 : 3);
                 item += 1;
 
@@ -183,7 +183,7 @@ namespace RelaNet.DynamicDatas
                 len++;
             while (item >= itemMin && item < itemMax)
             {
-                len += (Ints[item - itemMin] == Entry.Ints[item - itemMin]
+                len += ((!delta && Ints[item - itemMin] == Entry.Ints[item - itemMin])
                     || (delta && !Stales[item]) ? 0 : 5);
                 item += 1;
 
@@ -198,7 +198,7 @@ namespace RelaNet.DynamicDatas
                 len++;
             while (item >= itemMin && item < itemMax)
             {
-                len += (Floats[item - itemMin] == Entry.Floats[item - itemMin]
+                len += ((!delta && Floats[item - itemMin] == Entry.Floats[item - itemMin])
                     || (delta && !Stales[item]) ? 0 : 5);
                 item += 1;
 
@@ -213,7 +213,7 @@ namespace RelaNet.DynamicDatas
                 len++;
             while (item >= itemMin && item < itemMax)
             {
-                len += (Doubles[item - itemMin] == Entry.Doubles[item - itemMin]
+                len += ((!delta && Doubles[item - itemMin] == Entry.Doubles[item - itemMin])
                     || (delta && !Stales[item]) ? 0 : 9);
                 item += 1;
 
@@ -230,7 +230,7 @@ namespace RelaNet.DynamicDatas
                 len++;
             while (item >= itemMin && item < itemMax)
             {
-                if (Strings[item - itemMin] == Entry.GetStringAtIndex(item - itemMin)
+                if ((!delta && Strings[item - itemMin] == Entry.GetStringAtIndex(item - itemMin))
                     || (delta && !Stales[item]))
                 {
                     item += 1;
@@ -316,7 +316,7 @@ namespace RelaNet.DynamicDatas
             }
             while (WritingCurrentItem >= itemMin && WritingCurrentItem < itemMax)
             {
-                if (Bytes[WritingCurrentItem - itemMin] == Entry.Bytes[WritingCurrentItem - itemMin]
+                if ((!delta && Bytes[WritingCurrentItem - itemMin] == Entry.Bytes[WritingCurrentItem - itemMin])
                     || (delta && !Stales[WritingCurrentItem]))
                 {
                     WritingCurrentItem++;
@@ -352,7 +352,7 @@ namespace RelaNet.DynamicDatas
             }
             while (WritingCurrentItem >= itemMin && WritingCurrentItem < itemMax)
             {
-                if (UShorts[WritingCurrentItem - itemMin] == Entry.UShorts[WritingCurrentItem - itemMin]
+                if ((!delta && UShorts[WritingCurrentItem - itemMin] == Entry.UShorts[WritingCurrentItem - itemMin])
                     || (delta && !Stales[WritingCurrentItem]))
                 {
                     WritingCurrentItem++;
@@ -388,7 +388,7 @@ namespace RelaNet.DynamicDatas
             }
             while (WritingCurrentItem >= itemMin && WritingCurrentItem < itemMax)
             {
-                if (Ints[WritingCurrentItem - itemMin] == Entry.Ints[WritingCurrentItem - itemMin]
+                if ((!delta && Ints[WritingCurrentItem - itemMin] == Entry.Ints[WritingCurrentItem - itemMin])
                     || (delta && !Stales[WritingCurrentItem]))
                 {
                     WritingCurrentItem++;
@@ -424,7 +424,7 @@ namespace RelaNet.DynamicDatas
             }
             while (WritingCurrentItem >= itemMin && WritingCurrentItem < itemMax)
             {
-                if (Floats[WritingCurrentItem - itemMin] == Entry.Floats[WritingCurrentItem - itemMin]
+                if ((!delta && Floats[WritingCurrentItem - itemMin] == Entry.Floats[WritingCurrentItem - itemMin])
                     || (delta && !Stales[WritingCurrentItem]))
                 {
                     WritingCurrentItem++;
@@ -460,7 +460,7 @@ namespace RelaNet.DynamicDatas
             }
             while (WritingCurrentItem >= itemMin && WritingCurrentItem < itemMax)
             {
-                if (Doubles[WritingCurrentItem - itemMin] == Entry.Doubles[WritingCurrentItem - itemMin]
+                if ((!delta && Doubles[WritingCurrentItem - itemMin] == Entry.Doubles[WritingCurrentItem - itemMin])
                     || (delta && !Stales[WritingCurrentItem]))
                 {
                     WritingCurrentItem++;
@@ -498,7 +498,7 @@ namespace RelaNet.DynamicDatas
             string str;
             while (WritingCurrentItem >= itemMin && WritingCurrentItem < itemMax)
             {
-                if (Strings[WritingCurrentItem - itemMin] == Entry.GetStringAtIndex(WritingCurrentItem - itemMin)
+                if ((!delta && Strings[WritingCurrentItem - itemMin] == Entry.GetStringAtIndex(WritingCurrentItem - itemMin))
                     || (delta && !Stales[WritingCurrentItem]))
                 {
                     WritingCurrentItem++;

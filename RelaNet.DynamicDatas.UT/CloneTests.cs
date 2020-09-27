@@ -267,5 +267,44 @@ namespace RelaNet.DynamicDatas.UT
 
             TestCloneStale(clone1, clone2);
         }
+
+        [TestMethod]
+        public void BackToDefaultTest()
+        {
+            DynamicDataType tcgCardType = new DynamicDataType("Unit",
+                bools: new string[] { "Instant" },
+                bytes: new string[] { "Fire Cost" },
+                ints: new string[] { "Health", "Attack", "Armor" });
+
+            {
+                DynamicDataEntry card = new DynamicDataEntry(tcgCardType);
+
+                card.SetBool("Instant", false);
+
+                card.SetByte("Fire Cost", 2);
+
+                card.SetInt("Health", 100);
+                card.SetInt("Attack", -7);
+                card.SetInt("Armor", 8);
+
+                DynamicDataClone clone1 = new DynamicDataClone(card);
+                clone1.SetBool("Instant", true);
+                clone1.SetInt("Health", 99);
+                clone1.SetByte("Fire Cost", 3);
+
+                DynamicDataClone clone2 = TestCloneFull(clone1);
+
+                // now set health back to default and see if it gets networked properly
+                clone1.SetInt("Health", 100);
+
+                TestCloneStale(clone1, clone2);
+
+                // reset instant and fire cost and see if they are networked right
+                clone1.SetBool("Instant",  false);
+                clone1.SetByte("Fire Cost", 2);
+
+                TestCloneStale(clone1, clone2);
+            }
+        }
     }
 }
