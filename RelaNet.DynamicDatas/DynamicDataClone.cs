@@ -1,4 +1,5 @@
-﻿using System;
+﻿using RelaNet.Messages;
+using System;
 using System.Collections.Generic;
 using System.Text;
 
@@ -81,6 +82,81 @@ namespace RelaNet.DynamicDatas
                         Strings[i] = entry.GetStringAtIndex(i);
                     StringLengths = new int[entry.DataType.Strings];
                 }
+            }
+        }
+
+        // reuse a clone
+        // we will try to reuse our arrays if possible
+        public void LoadFromEntry(DynamicDataEntry entry)
+        {
+            Entry = entry;
+
+            Stales = new bool[entry.DataType.TotalCount];
+
+            if (entry.DataType.Bools > 0)
+            {
+                if (Bools == null || Bools.Length < entry.DataType.Bools)
+                    Bools = new bool[entry.DataType.Bools];
+                if (Bools.Length > 0)
+                {
+                    PackedBoolSize = (8 + (Bools.Length - (Bools.Length % 8))) / 8;
+                    for (int i = 0; i < entry.DataType.Bools; i++)
+                        Bools[i] = entry.Bools[i];
+                }
+            }
+            else
+            {
+                PackedBoolSize = 0;
+            }
+
+            if (entry.DataType.Bytes > 0)
+            {
+                if (Bytes == null || Bytes.Length < entry.DataType.Bytes)
+                    Bytes = new byte[entry.DataType.Bytes];
+                for (int i = 0; i < entry.DataType.Bytes; i++)
+                    Bytes[i] = entry.Bytes[i];
+            }
+
+            if (entry.DataType.UShorts > 0)
+            {
+                if (UShorts == null || UShorts.Length < entry.DataType.UShorts)
+                    UShorts = new ushort[entry.DataType.UShorts];
+                for (int i = 0; i < entry.DataType.UShorts; i++)
+                    UShorts[i] = entry.UShorts[i];
+            }
+
+            if (entry.DataType.Ints > 0)
+            {
+                if (Ints == null || Ints.Length < entry.DataType.Ints)
+                    Ints = new int[entry.DataType.Ints];
+                for (int i = 0; i < entry.DataType.Ints; i++)
+                    Ints[i] = entry.Ints[i];
+            }
+
+            if (entry.DataType.Floats > 0)
+            {
+                if (Floats == null || Floats.Length < entry.DataType.Floats)
+                    Floats = new float[entry.DataType.Floats];
+                for (int i = 0; i < entry.DataType.Floats; i++)
+                    Floats[i] = entry.Floats[i];
+            }
+
+            if (entry.DataType.Doubles > 0)
+            {
+                if (Doubles == null || Doubles.Length < entry.DataType.Doubles)
+                    Doubles = new double[entry.DataType.Doubles];
+                for (int i = 0; i < entry.DataType.Doubles; i++)
+                    Doubles[i] = entry.Doubles[i];
+            }
+
+            if (entry.DataType.Strings > 0)
+            {
+                if (Strings == null || Strings.Length < entry.DataType.Strings)
+                    Strings = new string[entry.DataType.Strings];
+                for (int i = 0; i < entry.DataType.Strings; i++)
+                    Strings[i] = entry.GetStringAtIndex(i);
+                if (StringLengths == null || StringLengths.Length < entry.DataType.Strings)
+                    StringLengths = new int[entry.DataType.Strings];
             }
         }
 
@@ -255,6 +331,11 @@ namespace RelaNet.DynamicDatas
             }
 
             return len;
+        }
+
+        public void WriteNextPacket(Sent sent, bool delta)
+        {
+            sent.Length += WriteNextPacket(sent.Data, sent.Length, delta);
         }
 
         public int WriteNextPacket(byte[] data, int start, bool delta)
@@ -974,7 +1055,7 @@ namespace RelaNet.DynamicDatas
 
             // recalculate total string lengths
             TotalStringLengths = 0;
-            for (int i = 0; i < Strings.Length; i++)
+            for (int i = 0; i < Entry.DataType.Strings; i++)
                 TotalStringLengths += StringLengths[i];
 
             TrySetStale((ushort)(Entry.DataType.Bools + Entry.DataType.Bytes +

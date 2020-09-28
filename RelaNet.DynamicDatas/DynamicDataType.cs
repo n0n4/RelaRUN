@@ -143,6 +143,151 @@ namespace RelaNet.DynamicDatas
             }
         }
 
+        // reuse a type
+        public void LoadFromConfig(
+            string typeName,
+            string[] bools = null,
+            string[] bytes = null,
+            string[] ushorts = null,
+            string[] ints = null,
+            string[] floats = null,
+            string[] doubles = null,
+            string[] strings = null)
+        {
+            TypeName = typeName;
+            TypeNameLength = Utilities.Bytes.GetStringLength(typeName);
+
+            int total = 0;
+
+            if (bools != null)
+            {
+                Bools = (byte)bools.Length;
+                total += bools.Length;
+            }
+            else
+                Bools = 0;
+
+            if (bytes != null)
+            {
+                Bytes = (byte)bytes.Length;
+                total += bytes.Length;
+            }
+            else
+                Bytes = 0;
+
+            if (ushorts != null)
+            {
+                UShorts = (byte)ushorts.Length;
+                total += ushorts.Length;
+            }
+            else
+                UShorts = 0;
+
+            if (ints != null)
+            {
+                Ints = (byte)ints.Length;
+                total += ints.Length;
+            }
+            else
+                Ints = 0;
+
+            if (floats != null)
+            {
+                Floats = (byte)floats.Length;
+                total += floats.Length;
+            }
+            else
+                Floats = 0;
+
+            if (doubles != null)
+            {
+                Doubles = (byte)doubles.Length;
+                total += doubles.Length;
+            }
+            else
+                Doubles = 0;
+
+            if (strings != null)
+            {
+                Strings = (byte)strings.Length;
+                total += strings.Length;
+            }
+            else
+                Strings = 0;
+
+            TotalCount = total;
+            if (Names == null || total > Names.Length)
+            {
+                Names = new string[total];
+                NameLengths = new int[total];
+            }
+
+            int c = 0;
+            if (bools != null)
+            {
+                for (int i = 0; i < bools.Length; i++)
+                {
+                    Names[c] = bools[i];
+                    NameLengths[c] = RelaNet.Utilities.Bytes.GetStringLength(Names[c]);
+                    c++;
+                }
+            }
+            if (bytes != null)
+            {
+                for (int i = 0; i < bytes.Length; i++)
+                {
+                    Names[c] = bytes[i];
+                    NameLengths[c] = RelaNet.Utilities.Bytes.GetStringLength(Names[c]);
+                    c++;
+                }
+            }
+            if (ushorts != null)
+            {
+                for (int i = 0; i < ushorts.Length; i++)
+                {
+                    Names[c] = ushorts[i];
+                    NameLengths[c] = RelaNet.Utilities.Bytes.GetStringLength(Names[c]);
+                    c++;
+                }
+            }
+            if (ints != null)
+            {
+                for (int i = 0; i < ints.Length; i++)
+                {
+                    Names[c] = ints[i];
+                    NameLengths[c] = RelaNet.Utilities.Bytes.GetStringLength(Names[c]);
+                    c++;
+                }
+            }
+            if (floats != null)
+            {
+                for (int i = 0; i < floats.Length; i++)
+                {
+                    Names[c] = floats[i];
+                    NameLengths[c] = RelaNet.Utilities.Bytes.GetStringLength(Names[c]);
+                    c++;
+                }
+            }
+            if (doubles != null)
+            {
+                for (int i = 0; i < doubles.Length; i++)
+                {
+                    Names[c] = doubles[i];
+                    NameLengths[c] = RelaNet.Utilities.Bytes.GetStringLength(Names[c]);
+                    c++;
+                }
+            }
+            if (strings != null)
+            {
+                for (int i = 0; i < strings.Length; i++)
+                {
+                    Names[c] = strings[i];
+                    NameLengths[c] = RelaNet.Utilities.Bytes.GetStringLength(Names[c]);
+                    c++;
+                }
+            }
+        }
+
 
 
         // Header Methods

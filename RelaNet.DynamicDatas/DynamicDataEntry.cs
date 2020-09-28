@@ -1,4 +1,5 @@
-﻿using System;
+﻿using RelaNet.Messages;
+using System;
 using System.Collections.Generic;
 using System.Text;
 
@@ -50,6 +51,41 @@ namespace RelaNet.DynamicDatas
                     Strings = new string[type.Strings];
                     StringLengths = new int[type.Strings];
                 }
+            }
+        }
+
+        // reuse an entry
+        // we will try to reuse arrays if possible
+        public void LoadFromType(DynamicDataType type)
+        {
+            if (type.Bools > 0)
+            {
+                if (Bools == null || Bools.Length < type.Bools)
+                    Bools = new bool[type.Bools];
+                if (Bools.Length > 0)
+                {
+                    PackedBoolSize = (8 + (Bools.Length - (Bools.Length % 8))) / 8;
+                }
+            }
+            else
+                PackedBoolSize = 0;
+
+            if (type.Bytes > 0 && (Bytes == null || Bytes.Length < type.Bytes))
+                Bytes = new byte[type.Bytes];
+            if (type.UShorts > 0 && (UShorts == null || UShorts.Length < type.UShorts))
+                UShorts = new ushort[type.UShorts];
+            if (type.Ints > 0 && (Ints == null || Ints.Length < type.Ints))
+                Ints = new int[type.Ints];
+            if (type.Floats > 0 && (Floats == null || Floats.Length < type.Floats))
+                Floats = new float[type.Floats];
+            if (type.Doubles > 0 && (Doubles == null || Doubles.Length < type.Doubles))
+                Doubles = new double[type.Doubles];
+            if (type.Strings > 0)
+            {
+                if (Strings == null || Strings.Length < type.Strings)
+                    Strings = new string[type.Strings];
+                if (StringLengths == null || StringLengths.Length < type.Strings)
+                    StringLengths = new int[type.Strings];
             }
         }
 
@@ -173,6 +209,11 @@ namespace RelaNet.DynamicDatas
             }
 
             return len;
+        }
+
+        public void WriteNextPacket(Sent sent)
+        {
+            sent.Length += WriteNextPacket(sent.Data, sent.Length);
         }
 
         public int WriteNextPacket(byte[] data, int start)
@@ -708,7 +749,7 @@ namespace RelaNet.DynamicDatas
 
             // recalculate total string lengths
             TotalStringLengths = 0;
-            for (int i = 0; i < Strings.Length; i++)
+            for (int i = 0; i < DataType.Strings; i++)
                 TotalStringLengths += StringLengths[i];
         }
         #endregion accessors
