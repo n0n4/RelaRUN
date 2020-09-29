@@ -89,6 +89,13 @@ namespace RelaNet.DynamicDatas
             }
         }
 
+        public void Clear()
+        {
+            DataType = null;
+            PackedBoolSize = 0;
+            TotalStringLengths = 0;
+        }
+
         // pack/unpack methods
         #region packing
         private int WritingCurrentItem = 0;

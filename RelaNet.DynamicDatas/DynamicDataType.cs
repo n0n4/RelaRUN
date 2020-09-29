@@ -288,6 +288,27 @@ namespace RelaNet.DynamicDatas
             }
         }
 
+        public void Clear()
+        {
+            Bools = 0;
+            Bytes = 0;
+            UShorts = 0;
+            Ints = 0;
+            Floats = 0;
+            Doubles = 0;
+            Strings = 0;
+            TotalCount = 0;
+
+            if (Names != null)
+            {
+                for (int i = 0; i < Names.Length; i++)
+                {
+                    Names[i] = string.Empty;
+                    NameLengths[i] = 0;
+                }
+            }
+        }
+
 
 
         // Header Methods

@@ -91,7 +91,8 @@ namespace RelaNet.DynamicDatas
         {
             Entry = entry;
 
-            Stales = new bool[entry.DataType.TotalCount];
+            if (Stales == null || Stales.Length < entry.DataType.TotalCount)
+                Stales = new bool[entry.DataType.TotalCount];
 
             if (entry.DataType.Bools > 0)
             {
@@ -158,6 +159,16 @@ namespace RelaNet.DynamicDatas
                 if (StringLengths == null || StringLengths.Length < entry.DataType.Strings)
                     StringLengths = new int[entry.DataType.Strings];
             }
+        }
+
+        public void Clear()
+        {
+            Entry = null;
+            PackedBoolSize = 0;
+            TotalStringLengths = 0;
+
+            for (int i = 0; i < Stales.Length; i++)
+                Stales[i] = false;
         }
 
         // stale update
