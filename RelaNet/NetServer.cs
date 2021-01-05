@@ -579,6 +579,7 @@ namespace RelaNet
                                         ackmid = ushort.MaxValue;
                                     else
                                         ackmid--;
+
                                     OurReceipts[receipt.PlayerId][ackmid] = true;
                                 }
                                 continue;

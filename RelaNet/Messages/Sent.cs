@@ -107,7 +107,7 @@ namespace RelaNet.Messages
 
         public void RemoveTargetIndex(int index, bool skiphandshake)
         {
-            if(AwaitingLength <= 1)
+            if (AwaitingLength <= 1)
             {
                 AwaitingLength = 0;
                 return;
@@ -118,8 +118,6 @@ namespace RelaNet.Messages
 
             AwaitingLength--;
             TargetPids[index] = TargetPids[AwaitingLength];
-
-            
         }
 
         // returns index of the ack within Acks
@@ -226,6 +224,18 @@ namespace RelaNet.Messages
         public void WriteString(string s)
         {
             Length += Bytes.WriteString(Data, s, Length);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void WriteFloat(float f)
+        {
+            Bytes.WriteFloat(Data, f, Length); Length += 4;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void WriteDouble(double d)
+        {
+            Bytes.WriteDouble(Data, d, Length); Length += 8;
         }
         #endregion
     }
