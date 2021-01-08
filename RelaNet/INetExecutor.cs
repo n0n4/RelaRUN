@@ -14,5 +14,9 @@ namespace RelaNet
 
         void PlayerAdded(PlayerInfo pinfo);
         void PlayerRemoved(PlayerInfo pinfo);
+
+        // note: this is when we, as a client, confirm a connection to a server
+        // and gain a playerid. This is NOT when a new client connects (see PlayerAdded)
+        void ClientConnected(); // primarily for updating sents with valid pids
     }
 }

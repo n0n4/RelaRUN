@@ -6,7 +6,7 @@ using RelaNet.Utilities;
 
 namespace RelaNet.Snapshots.Basic2d
 {
-    public struct SnapInputPackerBasic2d : ISnapInputPacker<InputBasic2d>
+    public struct InputPackerBasic2d : ISnapInputPacker<InputBasic2d>
     {
         public int GetWriteLength(InputBasic2d from)
         {

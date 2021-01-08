@@ -6,12 +6,8 @@ using RelaNet.Utilities;
 
 namespace RelaNet.Snapshots.Basic2d
 {
-    public struct SnapPackerBasic2d : ISnapPacker<NentBasic2d>
+    public struct PackerBasic2d : ISnapPacker<NentBasic2d, PackInfoBasic2d>
     {
-        public NentBasic2d ActiveObj;
-        public NentBasic2d BasisObj;
-        public byte DeltaFlag;
-
         public const byte DELTA_FLAG_NONE = 0;
         public const byte DELTA_FLAG_X = 1;
         public const byte DELTA_FLAG_Y = 2;
@@ -34,107 +30,110 @@ namespace RelaNet.Snapshots.Basic2d
             obj.Free1 = 0;
         }
 
-        public void PackDelta(Sent sent)
+        public void PackDelta(Sent sent, PackInfoBasic2d packinfo)
         {
-            sent.WriteByte(DeltaFlag);
-            if ((DeltaFlag & DELTA_FLAG_ID1) != 0)
-                sent.WriteByte(ActiveObj.Id1);
+            sent.WriteByte(packinfo.DeltaFlag);
+            if ((packinfo.DeltaFlag & DELTA_FLAG_ID1) != 0)
+                sent.WriteByte(packinfo.Active.Id1);
 
-            if ((DeltaFlag & DELTA_FLAG_ID2) != 0)
-                sent.WriteUShort(ActiveObj.Id2);
+            if ((packinfo.DeltaFlag & DELTA_FLAG_ID2) != 0)
+                sent.WriteUShort(packinfo.Active.Id2);
 
-            if ((DeltaFlag & DELTA_FLAG_X) != 0)
-                sent.WriteFloat(ActiveObj.X);
+            if ((packinfo.DeltaFlag & DELTA_FLAG_X) != 0)
+                sent.WriteFloat(packinfo.Active.X);
 
-            if ((DeltaFlag & DELTA_FLAG_Y) != 0)
-                sent.WriteFloat(ActiveObj.Y);
+            if ((packinfo.DeltaFlag & DELTA_FLAG_Y) != 0)
+                sent.WriteFloat(packinfo.Active.Y);
 
-            if ((DeltaFlag & DELTA_FLAG_ROT) != 0)
-                sent.WriteFloat(ActiveObj.Rot);
+            if ((packinfo.DeltaFlag & DELTA_FLAG_ROT) != 0)
+                sent.WriteFloat(packinfo.Active.Rot);
 
-            if ((DeltaFlag & DELTA_FLAG_XVEL) != 0)
-                sent.WriteFloat(ActiveObj.XVel);
+            if ((packinfo.DeltaFlag & DELTA_FLAG_XVEL) != 0)
+                sent.WriteFloat(packinfo.Active.XVel);
 
-            if ((DeltaFlag & DELTA_FLAG_YVEL) != 0)
-                sent.WriteFloat(ActiveObj.YVel);
+            if ((packinfo.DeltaFlag & DELTA_FLAG_YVEL) != 0)
+                sent.WriteFloat(packinfo.Active.YVel);
 
-            if ((DeltaFlag & DELTA_FLAG_FREE1) != 0)
-                sent.WriteFloat(ActiveObj.Free1);
+            if ((packinfo.DeltaFlag & DELTA_FLAG_FREE1) != 0)
+                sent.WriteFloat(packinfo.Active.Free1);
         }
 
-        public void PackFull(Sent sent)
+        public void PackFull(Sent sent, PackInfoBasic2d packinfo)
         {
-            sent.WriteByte(ActiveObj.Id1);
-            sent.WriteUShort(ActiveObj.Id2);
-            sent.WriteFloat(ActiveObj.X);
-            sent.WriteFloat(ActiveObj.Y);
-            sent.WriteFloat(ActiveObj.Rot);
-            sent.WriteFloat(ActiveObj.XVel);
-            sent.WriteFloat(ActiveObj.YVel);
-            sent.WriteFloat(ActiveObj.Free1);
+            sent.WriteByte(packinfo.Active.Id1);
+            sent.WriteUShort(packinfo.Active.Id2);
+            sent.WriteFloat(packinfo.Active.X);
+            sent.WriteFloat(packinfo.Active.Y);
+            sent.WriteFloat(packinfo.Active.Rot);
+            sent.WriteFloat(packinfo.Active.XVel);
+            sent.WriteFloat(packinfo.Active.YVel);
+            sent.WriteFloat(packinfo.Active.Free1);
         }
 
-        public byte PrepPackDelta(NentBasic2d obj, NentBasic2d basis)
+        public byte PrepPackDelta(NentBasic2d obj, NentBasic2d basis,
+            out PackInfoBasic2d packinfo)
         {
             byte len = 1;
-            ActiveObj = obj;
-            BasisObj = basis;
-            DeltaFlag = DELTA_FLAG_NONE;
+            packinfo = new PackInfoBasic2d();
+            packinfo.Active = obj;
+            packinfo.DeltaFlag = DELTA_FLAG_NONE;
 
             if (obj.Id1 != basis.Id1)
             {
                 len++;
-                DeltaFlag |= DELTA_FLAG_ID1;
+                packinfo.DeltaFlag |= DELTA_FLAG_ID1;
             }
 
             if (obj.Id2 != basis.Id2)
             {
                 len += 2;
-                DeltaFlag |= DELTA_FLAG_ID2;
+                packinfo.DeltaFlag |= DELTA_FLAG_ID2;
             }
 
             if (obj.X != basis.X)
             {
                 len += 4;
-                DeltaFlag |= DELTA_FLAG_X;
+                packinfo.DeltaFlag |= DELTA_FLAG_X;
             }
 
             if (obj.Y != basis.Y)
             {
                 len += 4;
-                DeltaFlag |= DELTA_FLAG_Y;
+                packinfo.DeltaFlag |= DELTA_FLAG_Y;
             }
 
             if (obj.Rot != basis.Rot)
             {
                 len += 4;
-                DeltaFlag |= DELTA_FLAG_ROT;
+                packinfo.DeltaFlag |= DELTA_FLAG_ROT;
             }
 
             if (obj.XVel != basis.XVel)
             {
                 len += 4;
-                DeltaFlag |= DELTA_FLAG_XVEL;
+                packinfo.DeltaFlag |= DELTA_FLAG_XVEL;
             }
 
             if (obj.YVel != basis.YVel)
             {
                 len += 4;
-                DeltaFlag |= DELTA_FLAG_YVEL;
+                packinfo.DeltaFlag |= DELTA_FLAG_YVEL;
             }
 
             if (obj.Free1 != basis.Free1)
             {
                 len += 4;
-                DeltaFlag |= DELTA_FLAG_FREE1;
+                packinfo.DeltaFlag |= DELTA_FLAG_FREE1;
             }
 
             return len;
         }
 
-        public byte PrepPackFull(NentBasic2d obj)
+        public byte PrepPackFull(NentBasic2d obj,
+            out PackInfoBasic2d packinfo)
         {
-            ActiveObj = obj;
+            packinfo = new PackInfoBasic2d();
+            packinfo.Active = obj;
             return 1 + 2 + (4 * 6);
         }
 

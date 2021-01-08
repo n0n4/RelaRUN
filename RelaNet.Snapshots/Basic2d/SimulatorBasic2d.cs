@@ -1,14 +1,15 @@
-﻿using System;
+﻿using RelaNet.Utilities;
+using System;
 using System.Collections.Generic;
 using System.Text;
 
 namespace RelaNet.Snapshots.Basic2d
 {
-    public class SnapSimulatorBasic2d : ISnapSimulator
+    public class SimulatorBasic2d : ISnapSimulator
     {
         public NetServer Server;
-        public SnapInputManager<InputBasic2d, SnapInputPackerBasic2d> Input;
-        public Snapper<NentBasic2d, SnapPackerBasic2d> Nents;
+        public SnapInputManager<InputBasic2d, InputPackerBasic2d> Input;
+        public Snapper<NentBasic2d, PackerBasic2d, PackInfoBasic2d> Nents;
 
         private NetExecutorSnapper NetSnapper;
 
@@ -31,9 +32,9 @@ namespace RelaNet.Snapshots.Basic2d
         public float DashCooldownMax = 1000f; // ms
         public float DashSpeed = 0.9f; // per ms
 
-        public SnapSimulatorBasic2d(
-            SnapInputManager<InputBasic2d, SnapInputPackerBasic2d> input,
-            Snapper<NentBasic2d, SnapPackerBasic2d> nents)
+        public SimulatorBasic2d(
+            SnapInputManager<InputBasic2d, InputPackerBasic2d> input,
+            Snapper<NentBasic2d, PackerBasic2d, PackInfoBasic2d> nents)
         {
             Input = input;
             Nents = nents;
@@ -242,8 +243,8 @@ namespace RelaNet.Snapshots.Basic2d
 
                     // we're expecting the client to provide rotation in
                     // radians, for the record
-                    snap.XVel = DashSpeed * CosF(snap.Rot);
-                    snap.YVel = DashSpeed * SinF(snap.Rot);
+                    snap.XVel = DashSpeed * RMathF.Cos(snap.Rot);
+                    snap.YVel = DashSpeed * RMathF.Sin(snap.Rot);
 
                     // reduce the dash timer 
                     snap.Free1 -= delta;
@@ -297,7 +298,7 @@ namespace RelaNet.Snapshots.Basic2d
             h.Prev.Free1 = (h.Next.Free1 + h.Prev.Free1) / 2f;
 
             // rotation is more complicated to find the midpoint
-            h.Prev.Rot = AngleMidpointF(h.Prev.Rot, h.Next.Rot);
+            h.Prev.Rot = RMathF.AngleMidpoint(h.Prev.Rot, h.Next.Rot);
         }
 
         private void InterpolateLogic(SnapHistory<NentBasic2d> h, float delta)
@@ -320,7 +321,7 @@ namespace RelaNet.Snapshots.Basic2d
             h.Current.Free1 = (h.Current.Free1 * invtickpercent) + (h.Next.Free1 * tickpercent);
 
             // rotation is more complicated to blend
-            h.Current.Rot = AngleBlendF(h.Current.Rot, h.Next.Rot, tickpercent);
+            h.Current.Rot = RMathF.AngleBlend(h.Current.Rot, h.Next.Rot, tickpercent);
         }
 
         // returns false if we have no inputs
@@ -394,8 +395,8 @@ namespace RelaNet.Snapshots.Basic2d
         private void InputLogic(InputBasic2d action, SnapHistory<NentBasic2d> h, byte pid, float delta)
         {
             // process the inputs for this action 
-            h.Prev.XVel = Clampf(action.Horizontal, -1f, 1f) * PlayerSpeed;
-            h.Prev.YVel = Clampf(action.Vertical, -1f, 1f) * PlayerSpeed;
+            h.Prev.XVel = RMathF.Clamp(action.Horizontal, -1f, 1f) * PlayerSpeed;
+            h.Prev.YVel = RMathF.Clamp(action.Vertical, -1f, 1f) * PlayerSpeed;
 
             // set our rotation, but only if we're not mid-dash
             if (h.Prev.Free1 <= 0)
@@ -418,96 +419,6 @@ namespace RelaNet.Snapshots.Basic2d
             AdvanceLogic(ref h.Prev, delta);
         }
 
-        private float Clampf(float a, float min, float max)
-        {
-            return (a < min ? min : (a > max ? max : a));
-        }
-
-        // fun fact: the MathF library is not accessible in net standard 2.0...
-        private float SinF(float rad)
-        {
-            return (float)Math.Sin(rad);
-        }
-
-        private float CosF(float rad)
-        {
-            return (float)Math.Cos(rad);
-        }
-
-        private const float PI = 3.14159265f;
-        private const float TWOPI = 6.2831853f;
-        private float AngleMidpointF(float a, float b)
-        {
-            // order them by size, so a > b always
-            if (b > a)
-            {
-                float t = a;
-                a = b;
-                b = t;
-            }
-
-            // determine which direction is closer: over or under
-            if (a - b < PI)
-            {
-                // if the under distance is less than PI, it must be 
-                // the shorter distance, so our answer is simply to
-                // halve the distance
-                return (a + b) / 2f;
-            }
-            else if (a != b)
-            {
-                // if the under distance is more than PI, it will be faster
-                // to go over instead.
-                a -= TWOPI;
-                float t = (a + b) / 2f;
-                if (t < 0)
-                    t += TWOPI;
-                return t;
-            }
-
-            // otherwise, the angles are the same
-            return a; 
-        }
-
-        private float AngleBlendF(float a, float b, float percent)
-        {
-            if (percent == 0)
-                return a;
-            if (percent == 1)
-                return b;
-
-            // determine which direction is closer: over or under
-            float underDist = Math.Abs(a - b);
-            if (underDist < PI)
-            {
-                // if the under distance is less than PI, it must be 
-                // the shorter distance, so our answer is simply to
-                // blend the two angles
-                return (a * (1f - percent)) + (b * percent);
-            }
-            else if (a != b)
-            {
-                // if the under distance is more than PI, it will be faster
-                // to go over instead.
-                float overDist = TWOPI - underDist;
-                if (a < b)
-                {
-                    a -= overDist * percent;
-                    if (a < 0)
-                        a += TWOPI;
-                    return a;
-                }
-                else
-                {
-                    a += overDist * percent;
-                    if (a > TWOPI)
-                        a -= TWOPI;
-                    return a;
-                }
-            }
-
-            // otherwise, the angles are the same
-            return a;
-        }
+        
     }
 }

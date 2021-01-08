@@ -95,6 +95,10 @@ namespace RelaNet.Snapshots
                 // must resize
                 ServerInputs[pid] = ResizeStructs(ServerInputs[pid], ServerInputs[pid].Length * 2,
                     ServerInputStart[pid], ServerInputCount[pid]);
+                ServerInputTimestamps[pid] = ResizeStructs(ServerInputTimestamps[pid], ServerInputs[pid].Length * 2,
+                    ServerInputStart[pid], ServerInputCount[pid]);
+                ServerInputTickMS[pid] = ResizeStructs(ServerInputTickMS[pid], ServerInputs[pid].Length * 2,
+                    ServerInputStart[pid], ServerInputCount[pid]);
                 ServerInputStart[pid] = 0;
             }
 
@@ -105,7 +109,7 @@ namespace RelaNet.Snapshots
             // start checking from the end, because in proper functioning network
             // we'll be appending to the end most often
             int placeIndex = ServerInputStart[pid] + ServerInputCount[pid];
-            if (placeIndex > ServerInputs[pid].Length)
+            if (placeIndex >= ServerInputs[pid].Length)
                 placeIndex -= ServerInputs[pid].Length;
 
             int checkIndex = placeIndex - 1;
@@ -346,9 +350,9 @@ namespace RelaNet.Snapshots
 
 
         // Helpers
-        private T[] ResizeStructs(T[] a, int nlen, int oldstart, int oldcount)
+        private V[] ResizeStructs<V>(V[] a, int nlen, int oldstart, int oldcount)
         {
-            T[] b = new T[nlen];
+            V[] b = new V[nlen];
 
             // reorder
             for (int i = 0; i < oldcount; i++)

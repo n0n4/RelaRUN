@@ -767,6 +767,7 @@ namespace RelaNet
                         MaxPlayers = newmax;
                         if (MaxPlayersChangedCallback != null)
                             MaxPlayersChangedCallback(newmax);
+                        continue;
                     }
                     else if (eventid >= ExecutorEventCount)
                     {
@@ -823,9 +824,19 @@ namespace RelaNet
                     continue;
                 }
 
+                bool skipSend = false;
                 if (sent.Retries > 0)
-                    sent.Retries--;
-
+                {
+                    sent.RetryTimer += elapsedms;
+                    if (sent.RetryTimer >= sent.RetryTimerMax)
+                    {
+                        sent.RetryTimer = 0;
+                        sent.Retries--;
+                    }
+                    else
+                        skipSend = true;
+                }
+                
                 for (int o = 0; o < sent.AwaitingLength; o++)
                 {
                     byte pid = sent.TargetPids[o];
@@ -845,14 +856,17 @@ namespace RelaNet
                         continue;
                     }
 
-                    // add the ack for this player to the message
-                    sent.Data[Sent.TargetPidPosition] = pid;
-                    sent.LoadAck(pid);
-                    if (sent.IsFastOrdered)
+                    if (!skipSend)
                     {
-                        sent.LoadFastOrderValue(pid);
+                        // add the ack for this player to the message
+                        sent.Data[Sent.TargetPidPosition] = pid;
+                        sent.LoadAck(pid);
+                        if (sent.IsFastOrdered)
+                        {
+                            sent.LoadFastOrderValue(pid);
+                        }
+                        Socket.Send(sent.Data, sent.Length, PlayerInfos.Values[PlayerInfos.IdsToIndices[pid]].EndPoint);
                     }
-                    Socket.Send(sent.Data, sent.Length, PlayerInfos.Values[PlayerInfos.IdsToIndices[pid]].EndPoint);
 
                     // increment the timer
                     sent.TargetWaits[o] += elapsedms;
@@ -1138,12 +1152,30 @@ namespace RelaNet
                     NetLogger.Log("Server accepted our challenge: '" + name + "' Id " + pid);
 
                 // now that we know our playerid, update our convenience messages
-                CurrentReliableAllSent.Data[0] = OurPlayerId;
-                CurrentRetryAllSent.Data[0] = OurPlayerId;
-                CurrentOrderedAllSent.Data[0] = OurPlayerId;
-                for (int i = 0; i < CurrentReliablePlayerSent.Length; i++)
-                    if (CurrentReliablePlayerSent[i] != null)
-                        CurrentReliablePlayerSent[i].Data[0] = OurPlayerId;
+                // NOTE: whenever a new kind of sent is added, this operation must
+                //       be performed upon it.
+                if (CurrentRetryAllSent != null)
+                    CurrentRetryAllSent.Data[0] = OurPlayerId;
+                if (CurrentOrderedAllSent != null)
+                    CurrentOrderedAllSent.Data[0] = OurPlayerId;
+
+                if (CurrentReliableAllSent != null)
+                    CurrentReliableAllSent.Data[0] = OurPlayerId;
+                if (CurrentReliablePlayerSent != null)
+                    for (int i = 0; i < CurrentReliablePlayerSent.Length; i++)
+                        if (CurrentReliablePlayerSent[i] != null)
+                            CurrentReliablePlayerSent[i].Data[0] = OurPlayerId;
+
+                if (CurrentFastOrderedAllSent != null)
+                    CurrentFastOrderedAllSent.Data[0] = OurPlayerId;
+                if (CurrentFastOrderedPlayerSent != null)
+                    for (int i = 0; i < CurrentFastOrderedPlayerSent.Length; i++)
+                        if (CurrentFastOrderedPlayerSent[i] != null)
+                            CurrentFastOrderedPlayerSent[i].Data[0] = OurPlayerId;
+
+                // inform our executors
+                for (int i = 0; i < ExecutorCount; i++)
+                    Executors[i].ClientConnected();
             }
 
             if (responseType == EChallengeResponse.REJECT_FULL)
@@ -1952,7 +1984,8 @@ namespace RelaNet
             }
         }
 
-        public void SendRetry(Sent sent, PlayerInfo pinfo, int maxRetries = 3)
+        public void SendRetry(Sent sent, PlayerInfo pinfo, int maxRetries = 3,
+            float retryTimer = 15f)
         {
             // sends and retries until handshook or MaxRetries has passed
             if (sent.IsImmediate)
@@ -1960,6 +1993,7 @@ namespace RelaNet
             if (!pinfo.Active)
                 return;
             sent.Retries = maxRetries;
+            sent.RetryTimerMax = retryTimer;
             if (!sent.HasMessageId)
                 AssignMessageId(sent);
             sent.AddTarget(pinfo.PlayerId);
@@ -1970,11 +2004,13 @@ namespace RelaNet
             Socket.Send(sent.Data, sent.Length, pinfo.EndPoint);
         }
 
-        public void SendRetryAll(Sent sent, int maxRetries = 3)
+        public void SendRetryAll(Sent sent, int maxRetries = 3,
+            float retryTimer = 15f)
         {
             if (sent.IsImmediate)
                 Abandon("Tried to send immediate as retry");
             sent.Retries = maxRetries;
+            sent.RetryTimerMax = retryTimer;
             if (!sent.HasMessageId)
                 AssignMessageId(sent);
             for (int i = 0; i < PlayerInfos.Count; i++)

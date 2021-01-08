@@ -92,19 +92,26 @@ namespace RelaNet.Snapshots
         public ushort EventDestructSecondClass = 8;
         public ushort EventSnapSettings = 9;
         public ushort EventNewScene = 10;
-        public ushort EventClientInput = 11;
+        public ushort EventTickSettings = 11;
+
         // client events
-        public ushort EventResendFirstClass = 12;
-        public ushort EventResendSecondClass = 13;
+        public ushort EventClientInput = 12;
+        public ushort EventResendFirstClass = 13;
+        public ushort EventResendSecondClass = 14;
 
         public const int PacketHeaderLength = 6;
         public const int SentSizeWithHeader = Sent.EmptySizeWithAck + PacketHeaderLength;
 
         public NetServer Server;
 
+        public bool Active { get; private set; } = false;
+
         private Sent[] PlayerSents = new Sent[4];
         private float[] TimeSincePlayerSents = new float[4];
         public float TimeSincePlayerSentMax = 20; // send 50 times a second by default
+
+        public int SentMaxRetries = 20;
+        public float SentRetryTimer = 20;
 
         private ReArrayIdPool<SnapHandshake>[] PlayerHandshakes = null;
         private SnapHandshake[] CurrentHandshakes = null;
@@ -119,8 +126,11 @@ namespace RelaNet.Snapshots
 
         private ISnapper[] Snappers = new ISnapper[8];
         private int SnapperCount = 0;
-        private byte[] EntityIdToSnapperIdFirstClass = new byte[byte.MaxValue + 1];
-        private byte[] EntityIdToSnapperIdSecondClass = new byte[8];
+        private short[] EntityIdToSnapperIdFirstClass = new short[byte.MaxValue + 1];
+        private short[] EntityIdToSnapperIdSecondClass = new short[8];
+
+        private byte NextEntityIdFirstClass = 0;
+        private ushort NextEntityIdSecondClass = 0;
 
         private ushort[][] BasisTimestampsFirstClass = new ushort[8][];
         private bool[][] AnyBasisFirstClass = new bool[8][];
@@ -130,14 +140,14 @@ namespace RelaNet.Snapshots
         // current scene-- scene changes indicate all entities are thrown out
         private byte SceneNumber = 0;
         // current time is the current timestamp
-        private ushort CurrentTime = 0;
+        public ushort CurrentTime { get; private set; } = 0;
         // the seq. no. increments each time the CurrentTime rolls over back to 0
         // we reject packets whose headers are more than +/-1 from our current 
         // sequence number
         private byte SequenceNumber = 0;
         // TickMS is how many ms have elapsed since the last timestamp update
         private float TickMS = 0;
-        public float TickMSTarget = 20;
+        public float TickMSTarget { get; private set; } = 20;
 
         public ISnapSceneChanger SceneChanger = null;
         private byte SceneChangeType = 0;
@@ -178,10 +188,25 @@ namespace RelaNet.Snapshots
         {
             SceneChanger = sceneChanger;
 
+            // fill entity map with -1s
+            for (int i = 0; i < EntityIdToSnapperIdFirstClass.Length; i++)
+                EntityIdToSnapperIdFirstClass[i] = -1;
+
+            for (int i = 0; i < EntityIdToSnapperIdSecondClass.Length; i++)
+                EntityIdToSnapperIdSecondClass[i] = -1;
+        }
+
+
+
+        // Interface Methods
+        #region NetExec Interface Methods
+        public ushort Register(NetServer server, ushort startIndex)
+        {
+            Server = server;
+            
             if (Server.IsHost)
             {
-                for (int i = 0; i < PlayerSents.Length; i++)
-                    PlayerSents[i] = BeginNewSend((byte)i);
+                SceneNumber = 1;
 
                 for (int i = 0; i < BasisTimestampsFirstClass.Length; i++)
                     BasisTimestampsFirstClass[i] = new ushort[byte.MaxValue + 1];
@@ -199,24 +224,13 @@ namespace RelaNet.Snapshots
                 PlayerHandshakes = new ReArrayIdPool<SnapHandshake>[4];
                 for (int i = 0; i < PlayerHandshakes.Length; i++)
                     PlayerHandshakes[i] = CreateSnapHandshakePool();
+
+                for (int i = 0; i < PlayerSents.Length; i++)
+                    PlayerSents[i] = BeginNewSend((byte)i);
             }
             else
             {
                 ClientInputSent = Server.BeginNewSend(NetServer.SpecialNormal);
-            }
-        }
-
-
-
-        // Interface Methods
-        #region NetExec Interface Methods
-        public ushort Register(NetServer server, ushort startIndex)
-        {
-            Server = server;
-
-            if (Server.IsHost)
-            {
-                SceneNumber = 1;
             }
 
             EventPacketHeader += startIndex;
@@ -230,12 +244,13 @@ namespace RelaNet.Snapshots
             EventDestructSecondClass += startIndex;
             EventSnapSettings += startIndex;
             EventNewScene += startIndex;
-            EventClientInput += startIndex;
+            EventTickSettings += startIndex;
             // client events
+            EventClientInput += startIndex;
             EventResendFirstClass += startIndex;
             EventResendSecondClass += startIndex;
 
-            return 14;
+            return 15;
         }
 
         public void PlayerAdded(PlayerInfo pinfo)
@@ -340,6 +355,7 @@ namespace RelaNet.Snapshots
                     InputManagers[i].PlayerAdded(pinfo.PlayerId);
 
                 ServerSendSceneSettings(pinfo.PlayerId);
+                ServerSendTickSettings(pinfo.PlayerId);
             }
         }
 
@@ -348,8 +364,27 @@ namespace RelaNet.Snapshots
 
         }
 
+        public void ClientConnected()
+        {
+            // update our sents
+            if (ClientInputSent != null)
+                ClientInputSent.Data[0] = Server.OurPlayerId;
+
+            if (PlayerSents != null)
+            {
+                for (int i = 0; i < PlayerSents.Length; i++)
+                {
+                    if (PlayerSents[i] != null)
+                        PlayerSents[i].Data[0] = Server.OurPlayerId;
+                }
+            }
+        }
+
         public void PostTick(float elapsedMS)
         {
+            if (!Active)
+                return;
+
             if (Server.IsHost)
             {
                 // if we're the host, send player sents on a regular schedule
@@ -397,7 +432,9 @@ namespace RelaNet.Snapshots
 
         public void PreTick(float elapsedMS)
         {
-            ushort startTime = CurrentTime;
+            if (!Active)
+                return;
+            
             int times = 0;
             TickMS += elapsedMS;
             while (TickMS >= TickMSTarget)
@@ -434,23 +471,12 @@ namespace RelaNet.Snapshots
                     // headers would now be outdated.
                     ForceAllNewSends();
 
-                    LoadTimestamp(startTime);
+                    LoadTimestamp(CurrentTime);
                     Simulator.ServerAdvance();
                     // now we can tell our inputmanager to release all inputs
-                    // from startTime to CurrentTime, since we won't need them anymore.
-                    ushort releaseTime = startTime;
-                    for (int i = 0; i < times; i++)
-                    {
-                        for (int o = 0; o < InputManagerCount; o++)
-                            InputManagers[o].ServerReleaseInputs(releaseTime);
-
-                        if (releaseTime == ushort.MaxValue)
-                            releaseTime = 0;
-                        else
-                            releaseTime++;
-                    }
-
-                    startTime = CurrentTime;
+                    // from CurrentTime, since we won't need them anymore.
+                    for (int o = 0; o < InputManagerCount; o++)
+                        InputManagers[o].ServerReleaseInputs(CurrentTime);
                 }
 
                 times++;
@@ -709,8 +735,14 @@ namespace RelaNet.Snapshots
                 {
                     byte eid = receipt.Data[c]; c++;
                     ushort timestamp = Bytes.ReadUShort(receipt.Data, c); c += 2;
-                    byte etype = EntityIdToSnapperIdFirstClass[eid];
-                    ServerResendGhostFirst(receipt.PlayerId, eid, etype, timestamp);
+                    short etype = EntityIdToSnapperIdFirstClass[eid];
+                    if (etype == -1)
+                    {
+                        Log("Failed to resend snap entity 1:?:" + eid);
+                        Log("Entity has not been ghosted yet");
+                        return c;
+                    }
+                    ServerResendGhostFirst(receipt.PlayerId, eid, (byte)etype, timestamp);
 
                     return c;
                 }
@@ -725,8 +757,15 @@ namespace RelaNet.Snapshots
                         Log("Entity has not been ghosted yet");
                         return c;
                     }
-                    byte etype = EntityIdToSnapperIdSecondClass[eid];
-                    ServerResendGhostSecond(receipt.PlayerId, eid, etype, timestamp);
+
+                    short etype = EntityIdToSnapperIdSecondClass[eid];
+                    if (etype == -1)
+                    {
+                        Log("Failed to resend snap entity 2:?:" + eid);
+                        Log("Entity has not been ghosted yet");
+                        return c;
+                    }
+                    ServerResendGhostSecond(receipt.PlayerId, eid, (byte)etype, timestamp);
 
                     return c;
                 }
@@ -781,7 +820,13 @@ namespace RelaNet.Snapshots
                 byte eid = receipt.Data[c]; c++;
                 ushort basis = Bytes.ReadUShort(receipt.Data, c); c += 2;
                 byte nlen = receipt.Data[c]; c++;
-                byte etype = EntityIdToSnapperIdFirstClass[eid];
+                short etype = EntityIdToSnapperIdFirstClass[eid];
+                if (etype == -1)
+                {
+                    Log("Failed to delta snap entity 1:?:" + eid + " with payload " + nlen);
+                    Log("Entity has not been ghosted yet");
+                    return c + nlen;
+                }
 
                 if (!Snappers[etype].UnpackDeltaFirst(eid, receipt.Data, c, nlen, ReceiveCurrentTime, basis))
                 {
@@ -804,7 +849,14 @@ namespace RelaNet.Snapshots
                     Log("Entity has not been ghosted yet");
                     return c + nlen;
                 }
-                byte etype = EntityIdToSnapperIdSecondClass[eid];
+
+                short etype = EntityIdToSnapperIdSecondClass[eid];
+                if (etype == -1)
+                {
+                    Log("Failed to delta snap entity 2:?:" + eid + " with payload " + nlen);
+                    Log("Entity has not been ghosted yet");
+                    return c + nlen;
+                }
 
                 if (!Snappers[etype].UnpackDeltaSecond(eid, receipt.Data, c, nlen, ReceiveCurrentTime, basis))
                 {
@@ -844,7 +896,7 @@ namespace RelaNet.Snapshots
                     // resize
                     int alen = EntityIdToSnapperIdSecondClass.Length * 2;
                     while (alen < eid) alen *= 2;
-                    byte[] na = new byte[alen];
+                    short[] na = new short[alen];
                     for (int i = 0; i < EntityIdToSnapperIdSecondClass.Length; i++)
                         na[i] = EntityIdToSnapperIdSecondClass[i];
                     EntityIdToSnapperIdSecondClass = na;
@@ -887,7 +939,7 @@ namespace RelaNet.Snapshots
                     // resize
                     int alen = EntityIdToSnapperIdSecondClass.Length * 2;
                     while (alen < eid) alen *= 2;
-                    byte[] na = new byte[alen];
+                    short[] na = new short[alen];
                     for (int i = 0; i < EntityIdToSnapperIdSecondClass.Length; i++)
                         na[i] = EntityIdToSnapperIdSecondClass[i];
                     EntityIdToSnapperIdSecondClass = na;
@@ -904,7 +956,14 @@ namespace RelaNet.Snapshots
             else if (eventid == EventDeghostFirstClass)
             {
                 byte eid = receipt.Data[c]; c++;
-                byte etype = EntityIdToSnapperIdFirstClass[eid];
+                short etype = EntityIdToSnapperIdFirstClass[eid];
+                if (etype == -1)
+                {
+                    Log("Failed to deghost snap entity 1:?:" + eid);
+                    Log("Entity has not been ghosted yet");
+                    return c;
+                }
+
                 Snappers[etype].DeghostFirst(eid, ReceiveCurrentTime);
 
                 return c;
@@ -919,7 +978,14 @@ namespace RelaNet.Snapshots
                     Log("Entity has not been ghosted yet");
                     return c;
                 }
-                byte etype = EntityIdToSnapperIdSecondClass[eid];
+
+                short etype = EntityIdToSnapperIdSecondClass[eid];
+                if (etype == -1)
+                {
+                    Log("Failed to deghost snap entity 2:?:" + eid);
+                    Log("Entity has not been ghosted yet");
+                    return c;
+                }
 
                 Snappers[etype].DeghostSecond(eid, ReceiveCurrentTime);
 
@@ -929,8 +995,16 @@ namespace RelaNet.Snapshots
             else if (eventid == EventDestructFirstClass)
             {
                 byte eid = receipt.Data[c]; c++;
-                byte etype = EntityIdToSnapperIdFirstClass[eid];
+                short etype = EntityIdToSnapperIdFirstClass[eid];
+                if (etype == -1)
+                {
+                    Log("Failed to destruct snap entity 1:?:" + eid);
+                    Log("Entity has not been ghosted yet");
+                    return c;
+                }
+
                 Snappers[etype].DestructFirst(eid);
+                EntityIdToSnapperIdFirstClass[eid] = -1;
 
                 return c;
             }
@@ -944,9 +1018,17 @@ namespace RelaNet.Snapshots
                     Log("Entity has not been ghosted yet");
                     return c;
                 }
-                byte etype = EntityIdToSnapperIdSecondClass[eid];
+
+                short etype = EntityIdToSnapperIdSecondClass[eid];
+                if (etype == -1)
+                {
+                    Log("Failed to destruct snap entity 2:?:" + eid);
+                    Log("Entity has not been ghosted yet");
+                    return c;
+                }
 
                 Snappers[etype].DestructSecond(eid);
+                EntityIdToSnapperIdSecondClass[eid] = -1;
 
                 return c;
             }
@@ -959,11 +1041,40 @@ namespace RelaNet.Snapshots
             {
                 return ClientReceiveSnapSettings(receipt, c);
             }
+            // Engine Control
+            else if (eventid == EventTickSettings)
+            {
+                return ClientReceiveTickSettings(receipt, c);
+            }
 
             throw new Exception("NetExecutorSnapper was passed eventid '" + eventid + "' which does not belong to it.");
         }
         #endregion NetExec Interface Methods
 
+
+
+        // Control Methods
+        #region Control Methods
+        public void Activate()
+        {
+            Active = true;
+        }
+
+        public void Deactivate()
+        {
+            Active = false;
+        }
+
+        public void ServerSetTickTarget(float tickms)
+        {
+            TickMSTarget = tickms;
+            SentRetryTimer = tickms;
+            if (SentRetryTimer > 40f)
+                SentRetryTimer = 40f;
+
+            ServerSendTickSettings();
+        }
+        #endregion Control Methods
 
 
         // Input Manager Methods
@@ -1130,24 +1241,18 @@ namespace RelaNet.Snapshots
 
         public byte AddSnapper(ISnapper sn)
         {
-            byte index = 0;
-            while (true)
-            {
-                if (index >= Snappers.Length)
-                    ExpandSnappers(index);
+            byte index = (byte)SnapperCount;
+            if (index >= byte.MaxValue)
+                throw new Exception("Tried to add new Snapper, but already have too many!");
 
-                if (Snappers[index] == null)
-                {
-                    Snappers[index] = sn;
-                    sn.Register(this, index);
-                    return index;
-                }
-
-                index++;
-
-                if (index >= byte.MaxValue)
-                    throw new Exception("Tried to add new Snapper, but already have too many!");
-            }
+            SnapperCount++;
+            
+            if (index >= Snappers.Length)
+                ExpandSnappers(index);
+            
+            Snappers[index] = sn;
+            sn.Register(this, index);
+            return index;
         }
 
         public void SetSnapper(ISnapper sn, ushort id)
@@ -1184,7 +1289,8 @@ namespace RelaNet.Snapshots
             if (send.Length + requestedLength <= UdpClientExtensions.MaxUdpSize)
                 return send;
             // send the current send
-            Server.SendRetry(send, Server.PlayerInfos.Values[Server.PlayerInfos.IdsToIndices[pid]]);
+            Server.SendRetry(send, Server.PlayerInfos.Values[Server.PlayerInfos.IdsToIndices[pid]],
+                SentMaxRetries, SentRetryTimer);
             CurrentHandshakes[pid].AckNo = send.MessageId;
 
             // create a new send
@@ -1208,7 +1314,15 @@ namespace RelaNet.Snapshots
             if (send.Length > SentSizeWithHeader)
             {
                 // send the current send, but only if anything was written other than the header
-                Server.SendRetry(send, Server.PlayerInfos.Values[Server.PlayerInfos.IdsToIndices[pid]]);
+                // A note on maxRetries:
+                // if this number is too small, we won't be able to trigger
+                // the handshake callback, because after the retries are spent,
+                // it gets removed from the processresends loop
+                // and the sent is freed up, which means it is already
+                // gone by the time the handshake arrives.
+                
+                Server.SendRetry(send, Server.PlayerInfos.Values[Server.PlayerInfos.IdsToIndices[pid]],
+                    SentMaxRetries, SentRetryTimer);
                 CurrentHandshakes[pid].AckNo = send.MessageId;
 
                 // create a new send
@@ -1325,6 +1439,19 @@ namespace RelaNet.Snapshots
             ServerSendNewScene();
         }
 
+        private void ServerSendTickSettings(byte? pid = null)
+        {
+            int slen = 2 + 4;
+            Sent send;
+            if (pid == null)
+                send = Server.GetFastOrderedAllSend(slen);
+            else
+                send = Server.GetFastOrderedPlayerSend(pid.Value, slen);
+
+            send.WriteUShort(EventTickSettings);
+            send.WriteFloat(TickMSTarget);
+        }
+
         private void ServerSendNewScene(byte? pid = null)
         {
             int slen = 3 + 1 + 2;
@@ -1403,6 +1530,58 @@ namespace RelaNet.Snapshots
 
             // when we send the ghost, we need to add it to our handshake memory
             CurrentHandshakes[pid].AddSecondEntity(eid);
+        }
+
+        public void ServerSendGhostAllFirst(byte eid, byte etype)
+        {
+            ISnapper snapper = Snappers[etype];
+            byte nlen = snapper.PrepGhostFirst(eid, CurrentTime);
+            int slen = 2 + 1 + 1 + 1 + nlen;
+
+            for (int i = 0; i < Server.PlayerInfos.Count; i++)
+            {
+                byte pid = Server.PlayerInfos.Values[i].PlayerId;
+                if (pid == 0)
+                    continue; // don't send to host
+
+                Sent send = GetPlayerSent(pid, slen);
+
+                send.WriteUShort(EventGhostFirstClass);
+                send.WriteByte(eid);
+                send.WriteByte(etype);
+                send.WriteByte(nlen);
+
+                snapper.WriteGhostFirst(send);
+
+                // when we send the ghost, we need to add it to our handshake memory
+                CurrentHandshakes[pid].AddFirstEntity(eid);
+            }
+        }
+
+        public void ServerSendGhostAllSecond(ushort eid, byte etype)
+        {
+            ISnapper snapper = Snappers[etype];
+            byte nlen = snapper.PrepGhostSecond(eid, CurrentTime);
+            int slen = 2 + 2 + 1 + 1 + nlen;
+
+            for (int i = 0; i < Server.PlayerInfos.Count; i++)
+            {
+                byte pid = Server.PlayerInfos.Values[i].PlayerId;
+                if (pid == 0)
+                    continue; // don't send to host
+
+                Sent send = GetPlayerSent(pid, slen);
+
+                send.WriteUShort(EventGhostSecondClass);
+                send.WriteUShort(eid);
+                send.WriteByte(etype);
+                send.WriteByte(nlen);
+
+                snapper.WriteGhostSecond(send);
+
+                // when we send the ghost, we need to add it to our handshake memory
+                CurrentHandshakes[pid].AddSecondEntity(eid);
+            }
         }
 
         private void ServerResendGhostFirst(byte pid, byte eid, byte etype, ushort timestamp)
@@ -1567,9 +1746,75 @@ namespace RelaNet.Snapshots
             }
         }
 
-        public void DestructFirst(byte eid)
+        // returns true if an entity can be made
+        public bool ServerRequestEntityFirst(byte etype, out byte eid)
         {
-            byte etype = EntityIdToSnapperIdFirstClass[eid];
+            eid = NextEntityIdFirstClass;
+            if (eid == byte.MaxValue && EntityIdToSnapperIdFirstClass[eid] != -1)
+                return false;
+            EntityIdToSnapperIdFirstClass[eid] = etype;
+            
+            // figure out the next entity id
+            if (eid != byte.MaxValue)
+            {
+                NextEntityIdFirstClass++;
+                while (eid != byte.MaxValue && EntityIdToSnapperIdFirstClass[NextEntityIdFirstClass] != -1)
+                    NextEntityIdFirstClass++;
+            }
+            return true;
+        }
+
+        public bool ServerRequestEntitySecond(byte etype, out ushort eid)
+        {
+            eid = NextEntityIdSecondClass;
+            if (eid >= EntityIdToSnapperIdSecondClass.Length)
+            {
+                // expand
+                int nlen = EntityIdToSnapperIdSecondClass.Length * 2;
+                while (nlen <= eid) nlen *= 2;
+                short[] na = new short[nlen];
+                for (int i = 0; i < EntityIdToSnapperIdSecondClass.Length; i++)
+                    na[i] = EntityIdToSnapperIdSecondClass[i];
+                EntityIdToSnapperIdSecondClass = na;
+            }
+
+            if (eid == ushort.MaxValue && EntityIdToSnapperIdSecondClass[eid] != -1)
+                return false;
+            EntityIdToSnapperIdSecondClass[eid] = etype;
+
+            // figure out the next entity id
+            if (eid != ushort.MaxValue)
+            {
+                NextEntityIdSecondClass++;
+                while (eid != ushort.MaxValue && EntityIdToSnapperIdSecondClass[NextEntityIdSecondClass] != -1)
+                {
+                    NextEntityIdSecondClass++;
+
+                    // expand entity array if needed
+                    if (NextEntityIdSecondClass >= EntityIdToSnapperIdSecondClass.Length)
+                    {
+                        // expand
+                        int nlen = EntityIdToSnapperIdSecondClass.Length * 2;
+                        while (nlen <= NextEntityIdSecondClass) nlen *= 2;
+                        short[] na = new short[nlen];
+                        for (int i = 0; i < EntityIdToSnapperIdSecondClass.Length; i++)
+                            na[i] = EntityIdToSnapperIdSecondClass[i];
+                        EntityIdToSnapperIdSecondClass = na;
+                    }
+                }
+            }
+            return true;
+        }
+
+        public void ServerDestructFirst(byte eid)
+        {
+            short etype = EntityIdToSnapperIdFirstClass[eid];
+            if (etype == -1)
+            {
+                Log("Failed to destruct snap entity 1:?:" + eid);
+                Log("Entity has not been ghosted yet");
+                return;
+            }
             Snappers[etype].DestructFirst(eid);
 
             // network
@@ -1583,11 +1828,22 @@ namespace RelaNet.Snapshots
                 send.WriteUShort(EventDestructFirstClass);
                 send.WriteByte(eid);
             }
+
+            // update the entity mapping + next entity
+            EntityIdToSnapperIdFirstClass[eid] = -1;
+            if (NextEntityIdFirstClass > eid)
+                NextEntityIdFirstClass = eid;
         }
 
-        public void DestructSecond(ushort eid)
+        public void ServerDestructSecond(ushort eid)
         {
-            byte etype = EntityIdToSnapperIdSecondClass[eid];
+            short etype = EntityIdToSnapperIdSecondClass[eid];
+            if (etype == -1)
+            {
+                Log("Failed to destruct snap entity 2:?:" + eid);
+                Log("Entity has not been ghosted yet");
+                return;
+            }
             Snappers[etype].DestructSecond(eid);
 
             // network
@@ -1601,6 +1857,11 @@ namespace RelaNet.Snapshots
                 send.WriteUShort(EventDestructSecondClass);
                 send.WriteUShort(eid);
             }
+
+            // update the entity mapping + next entity
+            EntityIdToSnapperIdSecondClass[eid] = -1;
+            if (NextEntityIdSecondClass > eid)
+                NextEntityIdSecondClass = eid;
         }
         #endregion Server Methods
 
@@ -1643,6 +1904,12 @@ namespace RelaNet.Snapshots
                 SceneChanger.ClientNewScene(SceneChangeType, SceneChangeCustomId,
                     SceneChangeTextA, SceneChangeTextB);
 
+            return c;
+        }
+
+        private int ClientReceiveTickSettings(Receipt receipt, int c)
+        {
+            TickMSTarget = Bytes.ReadFloat(receipt.Data, c); c += 4;
             return c;
         }
         #endregion Client Methods

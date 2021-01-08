@@ -18,6 +18,7 @@ namespace RelaNet.UT
         public TestEnvironment(int clientCount, Action<NetServer> execSetup)
         {
             ServerHost = new NetServer(true);
+            ServerHost.ServerChangeMaxPlayers(clientCount + 1);
             execSetup(ServerHost);
 
             IPEndPoint hostEndpoint = new IPEndPoint(IPAddress.Parse("1.1.1.1"), 4444);
@@ -91,6 +92,16 @@ namespace RelaNet.UT
         {
             for (int i = 0; i < times; i++)
                 Tick(elapsedms);
+        }
+
+        public void StandardTick()
+        {
+            TickRepeat(6, 100);
+        }
+
+        public void FastTick()
+        {
+            TickRepeat(24, 5);
         }
 
         public static string[] GetClientNames(int clientCount)

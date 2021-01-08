@@ -186,5 +186,10 @@ namespace RelaNet.Basics
         {
             // nothing doing
         }
+
+        public void ClientConnected()
+        {
+            // nothing doing
+        }
     }
 }

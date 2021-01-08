@@ -142,9 +142,9 @@ namespace RelaNet.Snapshots
 
 
             // load prev
-            PrevIndex = index + 1;
-            if (PrevIndex == Shots.Length)
-                PrevIndex = 0;
+            PrevIndex = index - 1;
+            if (PrevIndex == -1)
+                PrevIndex = Shots.Length - 1;
 
             ushort expectedPrevTimestamp = CurrentTimestamp;
             if (expectedPrevTimestamp == 0)

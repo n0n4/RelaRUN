@@ -15,6 +15,8 @@ namespace RelaNet.Messages
         public int Length;
 
         public int Retries;
+        public float RetryTimer;
+        public float RetryTimerMax;
         public byte[] TargetPids;
         public int AwaitingLength; // how many targets have we added
         public float[] TargetWaits; // how long have we waited
@@ -54,6 +56,8 @@ namespace RelaNet.Messages
             Length = 0;
 
             Retries = 0;
+            RetryTimer = 0;
+            RetryTimerMax = 0;
             TargetPids = new byte[8];
             AwaitingLength = 0;
             TargetWaits = new float[8];
@@ -107,14 +111,14 @@ namespace RelaNet.Messages
 
         public void RemoveTargetIndex(int index, bool skiphandshake)
         {
+             if (!skiphandshake && HandshakeCallback != null)
+                HandshakeCallback(TargetPids[index], MessageId);
+
             if (AwaitingLength <= 1)
             {
                 AwaitingLength = 0;
                 return;
             }
-
-            if (!skiphandshake && HandshakeCallback != null)
-                HandshakeCallback(TargetPids[index], MessageId);
 
             AwaitingLength--;
             TargetPids[index] = TargetPids[AwaitingLength];
@@ -151,8 +155,23 @@ namespace RelaNet.Messages
         {
             // load the given ack out of our Acks list and put it
             // into Data at the appropriate offset
-            byte[] nack = Acks[pid];
-            Buffer.BlockCopy(nack, 0, Data, AckPosition, 12);
+            int ackIndex = -1;
+            for (int i = 0; i < AckPids.Length; i++)
+            {
+                if (AckPids[i] == pid)
+                {
+                    ackIndex = i;
+                    break;
+                }
+            }
+
+            if (ackIndex != -1)
+            {
+                byte[] nack = Acks[ackIndex];
+                Buffer.BlockCopy(nack, 0, Data, AckPosition, 12);
+            }
+            else
+                throw new Exception("Tried to load Ack for player not included in Sent");
         }
 
         public void AddFastOrderValue(byte pid, ushort value)

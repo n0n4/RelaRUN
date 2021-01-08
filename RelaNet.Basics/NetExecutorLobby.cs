@@ -111,6 +111,11 @@ namespace RelaNet.Basics
             }
         }
 
+        public void ClientConnected()
+        {
+            // nothing doing
+        }
+
         public void PostTick(float elapsedMS)
         {
             // nothing doing

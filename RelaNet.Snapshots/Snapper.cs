@@ -6,9 +6,10 @@ using System.Text;
 
 namespace RelaNet.Snapshots
 {
-    public class Snapper<T, U> : ISnapper 
-        where T : struct 
-        where U : struct, ISnapPacker<T>
+    public class Snapper<T, U, V> : ISnapper 
+        where T : struct                    // entity struct
+        where U : struct, ISnapPacker<T, V> // packer struct 
+        where V : struct                    // packer info struct
     {
         // Delegates
         /*public delegate void ClearDelegate(ref T obj);
@@ -22,6 +23,7 @@ namespace RelaNet.Snapshots
         public ExtrapolateDelegate ExtrapolateAction;*/
 
         private readonly U Packer;
+        private V PackInfo;
 
         // defn. Entity Id
         // assigned by NetExecutorSnapper and networked
@@ -145,7 +147,7 @@ namespace RelaNet.Snapshots
             SnapHistory<T> h = FirstData.Values[FirstData.IdsToIndices[innerid]];
 
             return Packer.PrepPackFull(
-                h.Shots[h.FindIndex(timestamp)]);
+                h.Shots[h.FindIndex(timestamp)], out PackInfo);
         }
 
         public byte PrepGhostSecond(ushort entityid, ushort timestamp)
@@ -162,17 +164,17 @@ namespace RelaNet.Snapshots
             SnapHistory<T> h = SecondData.Values[FirstData.IdsToIndices[innerid]];
 
             return Packer.PrepPackFull(
-                h.Shots[h.FindIndex(timestamp)]);
+                h.Shots[h.FindIndex(timestamp)], out PackInfo);
         }
 
         public void WriteGhostFirst(Sent sent)
         {
-            Packer.PackFull(sent);
+            Packer.PackFull(sent, PackInfo);
         }
 
         public void WriteGhostSecond(Sent sent)
         {
-            Packer.PackFull(sent);
+            Packer.PackFull(sent, PackInfo);
         }
 
 
@@ -193,7 +195,8 @@ namespace RelaNet.Snapshots
 
             return Packer.PrepPackDelta(
                 h.Shots[h.FindIndex(timestamp)],
-                h.Shots[h.FindIndex(basisTimestamp)]);
+                h.Shots[h.FindIndex(basisTimestamp)],
+                out PackInfo);
         }
 
         public byte PrepDeltaSecond(ushort entityid, ushort timestamp, ushort basisTimestamp)
@@ -211,17 +214,18 @@ namespace RelaNet.Snapshots
 
             return Packer.PrepPackDelta(
                 h.Shots[h.FindIndex(timestamp)],
-                h.Shots[h.FindIndex(basisTimestamp)]);
+                h.Shots[h.FindIndex(basisTimestamp)],
+                out PackInfo);
         }
 
         public void WriteDeltaFirst(Sent sent)
         {
-            Packer.PackDelta(sent);
+            Packer.PackDelta(sent, PackInfo);
         }
 
         public void WriteDeltaSecond(Sent sent)
         {
-            Packer.PackDelta(sent);
+            Packer.PackDelta(sent, PackInfo);
         }
 
 
@@ -231,7 +235,7 @@ namespace RelaNet.Snapshots
             byte[] blob, int blobstart, int blobcount,
             ushort timestamp)
         {
-            if (entityid > FirstEntityIdToInnerId.Length)
+            if (entityid >= FirstEntityIdToInnerId.Length)
                 ExpandFirstEntityIdMap(entityid);
 
             // if entity already exists, do unpackfull instead
@@ -257,7 +261,7 @@ namespace RelaNet.Snapshots
             byte[] blob, int blobstart, int blobcount,
             ushort timestamp)
         {
-            if (entityid > SecondEntityIdToInnerId.Length)
+            if (entityid >= SecondEntityIdToInnerId.Length)
                 ExpandSecondEntityIdMap(entityid);
 
             // if entity already exists, do unpackfull instead
@@ -874,6 +878,81 @@ namespace RelaNet.Snapshots
         {
             ent.Shots[ent.CurrentIndex] = ent.Prev;
             ent.Flags[ent.CurrentIndex] = SnapHistory<T>.FlagSilver;
+        }
+
+
+        
+        // Entity Management Methods
+        public bool ServerAddEntityFirst(T initalSnap, out byte eid, bool ghostAll = true)
+        {
+            if (!NetSnapper.ServerRequestEntityFirst(EntityType, out eid))
+            {
+                return false; // NetSnapper says: no entity space available
+            }
+
+            if (FirstEntityIdToInnerId.Length <= eid)
+                ExpandFirstEntityIdMap(eid);
+
+            SnapHistory<T> h = FirstData.Request();
+            h.EntityId = eid;
+            h.Timestamps[0] = NetSnapper.CurrentTime;
+            h.Flags[0] = SnapHistory<T>.FlagGold;
+            h.LeadingIndex = 0;
+            h.Shots[0] = initalSnap;
+
+            FirstEntityIdToInnerId[eid] = h.PoolId;
+
+            if (ghostAll)
+            {
+                // ghost the new entity to all players
+                NetSnapper.ServerSendGhostAllFirst(eid, EntityType);
+            }
+
+            return true;
+        }
+
+        public bool ServerAddEntitySecond(T initalSnap, out ushort eid, bool ghostAll = true)
+        {
+            if (!NetSnapper.ServerRequestEntitySecond(EntityType, out eid))
+            {
+                return false; // NetSnapper says: no entity space available
+            }
+
+            if (SecondEntityIdToInnerId.Length <= eid)
+                ExpandSecondEntityIdMap(eid);
+
+            SnapHistory<T> h = SecondData.Request();
+            h.EntityId = eid;
+            h.Timestamps[0] = NetSnapper.CurrentTime;
+            h.Flags[0] = SnapHistory<T>.FlagGold;
+            h.LeadingIndex = 0;
+            h.Shots[0] = initalSnap;
+
+            SecondEntityIdToInnerId[eid] = h.PoolId;
+
+            if (ghostAll)
+            {
+                // ghost the new entity to all players
+                NetSnapper.ServerSendGhostAllSecond(eid, EntityType);
+            }
+
+            return true;
+        }
+
+        public SnapHistory<T> GetFirstEntity(byte eid)
+        {
+            if (FirstEntityIdToInnerId.Length < eid
+                || FirstEntityIdToInnerId[eid] == -1)
+                return null;
+            return FirstData.Values[FirstData.IdsToIndices[FirstEntityIdToInnerId[eid]]];
+        }
+
+        public SnapHistory<T> GetSecondEntity(ushort eid)
+        {
+            if (SecondEntityIdToInnerId.Length <= eid
+                || SecondEntityIdToInnerId[eid] == -1)
+                return null;
+            return SecondData.Values[SecondData.IdsToIndices[SecondEntityIdToInnerId[eid]]];
         }
     }
 }
