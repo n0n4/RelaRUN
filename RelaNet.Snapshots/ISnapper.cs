@@ -14,9 +14,11 @@ namespace RelaNet.Snapshots
         byte PrepGhostSecond(ushort entityid, ushort timestamp);
         void WriteGhostFirst(Sent sent);
         void WriteGhostSecond(Sent sent);
-
-        byte PrepDeltaFirst(byte entityid, ushort timestamp, ushort basisTimestamp);
-        byte PrepDeltaSecond(ushort entityid, ushort timestamp, ushort basisTimestamp);
+        
+        bool PrepDeltaFirst(byte entityid, ushort timestamp, ushort basisTimestamp,
+            out byte len);
+        bool PrepDeltaSecond(ushort entityid, ushort timestamp, ushort basisTimestamp,
+            out byte len);
         void WriteDeltaFirst(Sent sent);
         void WriteDeltaSecond(Sent sent);
 

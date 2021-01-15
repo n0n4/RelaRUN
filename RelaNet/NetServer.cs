@@ -24,7 +24,7 @@ namespace RelaNet
         public const ushort EventNewClient = 2;
         public const ushort EventLostClient = 3;
         public const ushort EventHeartbeat = 4;
-        public const ushort EventIgnore = 5;
+        public const ushort EventAck = 5;
         public const ushort EventChangeMaxPlayers = 6;
 
         // Executors process messages that the server receives
@@ -44,11 +44,17 @@ namespace RelaNet
 
         // Sents
         private ReArrayIdPool<Sent> Sents;
-        private ushort NextMessageId = 1;
-        private int[] MessageIdToPoolIdMap;
+        private ushort[] NextMessageId = new ushort[8];
+        private int[][] MessageIdToPoolIdMap;
         private int[] PlayerLastReceivedMessageId; // last messageid we have received from a player
+        private int[] PlayerMessagesSinceAck;
+        public int PlayerMessagesSinceAckMax = 64;
         private ushort[][] PlayerReceipts; // what we have received from other players
         private BitArray[] OurReceipts; // what other players have received from us
+        private ushort[] OurLastAckmids; // for each player, what is the leading mid of the
+                                         // last ack they sent us
+        private ushort[] OurLastUnreceiveds; // for each player, what is the last unreceived
+                                             // from the last ack they sent us
         private float[] TimeSinceReceivedPlayer;
         public float TimeSinceReceivedPlayerMax = 60000; // if we don't receive for this many ms
                                                          // then remove the client
@@ -78,12 +84,6 @@ namespace RelaNet
         private Sent[] CurrentReliablePlayerSent; // convenience for sending reliable messages to specific players
         private float TimeSinceReliablePlayerSent = 0;
         private float TimeSinceReliablePlayerSentMax = 20;
-
-        private Sent CurrentOrderedAllSent; // convenience for sending Ordered messages to all
-        private float TimeSinceOrderedAllSent = 0;
-        public float TimeSinceOrderedAllSentMax = 20; // send about 50 times a second by default
-        private ushort[] OrderedMids = new ushort[10];
-        private int OrderedCount = 0;
 
         private Sent CurrentFastOrderedAllSent; // convenience for sending Fast-Ordered messages to all
         private Sent[] CurrentFastOrderedPlayerSent; // convenience for sending reliable messages to specific players
@@ -138,20 +138,30 @@ namespace RelaNet
                 (s) => {
                     // when a sent is returned, clear it from our messageidtopoolidmap
                     if (s.HasMessageId)
-                        MessageIdToPoolIdMap[s.MessageId] = -1;
+                    {
+                        for (int i = 0; i < s.AwaitingLength; i++)
+                        {
+                            byte pid = s.TargetPids[i];
+                            MessageIdToPoolIdMap[pid][s.TargetMessageId[i]] = -1;
+                        }
+                    }
                     s.Clear();
                 });
 
             CurrentReliableAllSent = BeginNewSend(SpecialNormal);
             CurrentRetryAllSent = BeginNewSend(SpecialNormal);
-            CurrentOrderedAllSent = BeginNewSend(SpecialNormal);
 
-            MessageIdToPoolIdMap = new int[ushort.MaxValue + 1];
+            MessageIdToPoolIdMap = new int[2][];
             for (int i = 0; i < MessageIdToPoolIdMap.Length; i++)
-                MessageIdToPoolIdMap[i] = -1;
+            {
+                MessageIdToPoolIdMap[i] = new int[ushort.MaxValue + 1];
+                for (int o = 0; o < MessageIdToPoolIdMap[i].Length; o++)
+                    MessageIdToPoolIdMap[i][o] = -1;
+            }
 
             // last received starts at -1 to indicate that nothing has been received
-            PlayerLastReceivedMessageId = new int[] { -1 };
+            PlayerLastReceivedMessageId = new int[] { -1, -1 };
+            PlayerMessagesSinceAck = new int[] { -1, -1 };
 
             // generate Receipts by starting with every index pointing to itself
             // as no messages have been received
@@ -163,6 +173,9 @@ namespace RelaNet
             OurReceipts = new BitArray[2];
             for (int i = 0; i < OurReceipts.Length; i++)
                 OurReceipts[i] = new BitArray(ushort.MaxValue + 1);
+
+            OurLastUnreceiveds = new ushort[2];
+            OurLastAckmids = new ushort[2];
 
             TimeSinceReceivedPlayer = new float[1];
             CurrentReliablePlayerSent = new Sent[1];
@@ -321,8 +334,6 @@ namespace RelaNet
                     return;
                 }
             }
-            
-            ProcessFinalize();
 
             // process resends FIRST, so that if we send any new messages in the 
             // following work, we do not immediately duplicate those sends
@@ -376,29 +387,6 @@ namespace RelaNet
                         CurrentReliablePlayerSent[i] = BeginNewSend(SpecialNormal);
                     }
                 }
-            }
-
-            if (TimeSinceOrderedAllSent < TimeSinceOrderedAllSentMax)
-                TimeSinceOrderedAllSent += elapsedms;
-            // only send if it has any packets in it
-            if (TimeSinceOrderedAllSent >= TimeSinceOrderedAllSentMax &&
-                CurrentOrderedAllSent.Length > Sent.EmptySizeWithAck) 
-            {
-                TimeSinceOrderedAllSent = 0;
-                // we can only send it immediately if there are no other ordered packets
-                // waiting, for ordered packets we only send one at a time
-                if (OrderedCount == 0)
-                    SendReliableAll(CurrentOrderedAllSent);
-                // normally, we get mid assigned from sending. But we need it either way
-                // so if we don't send, assign a mid now
-                else if (!CurrentOrderedAllSent.HasMessageId)
-                    AssignMessageId(CurrentOrderedAllSent);
-
-                // mark the packet as ordered
-                CurrentOrderedAllSent.IsOrdered = true;
-                OrderedMids[OrderedCount] = CurrentOrderedAllSent.MessageId;
-                // now get a new sent for the next ordered packet
-                CurrentOrderedAllSent = BeginNewSend(SpecialNormal);
             }
             
             TimeSinceFastOrderedSent += elapsedms;
@@ -463,9 +451,7 @@ namespace RelaNet
             PlayerInfo pinfo;
             byte specialid;
             ushort lastreceived;
-            ushort ackmid;
             ushort nextunreceived;
-            byte ackbyte;
             ushort eventid;
             ushort lasteventid = 0;
             int addedcount;
@@ -473,9 +459,10 @@ namespace RelaNet
             bool foundExec = false;
 
             int skips = 0;
-            while (Socket.CanRead(skips))
+            Socket.StartRead();
+            while (Socket.CanRead())
             {
-                receipt = Socket.Read(skips);
+                receipt = Socket.Read();
 
                 // handle the receipt
                 c = 0;
@@ -499,7 +486,7 @@ namespace RelaNet
                     if (NetLogger.On)
                         NetLogger.Log("Rejecting packet: addressed to player id " + receipt.TargetPlayerId + ", we are " + OurPlayerId + ".");
 
-                    Socket.EndRead(skips);
+                    receipt.CanBeReleased = true;
                     continue;
                 }
 
@@ -513,13 +500,13 @@ namespace RelaNet
                 if (specialid == SpecialChallengeRequest)
                 {
                     c = ReceiveChallengeRequest(receipt, c);
-                    Socket.EndRead(skips);
+                    receipt.CanBeReleased = true;
                     continue;
                 }
                 else if (specialid == SpecialChallengeResponse)
                 {
                     c = ReceiveChallengeResponse(receipt, c);
-                    Socket.EndRead(skips);
+                    receipt.CanBeReleased = true;
                     continue;
                 }
 
@@ -530,7 +517,7 @@ namespace RelaNet
                     if (NetLogger.On)
                         NetLogger.Log("Rejecting packet: sender player id " + receipt.PlayerId + " out of bounds.");
 
-                    Socket.EndRead(skips);
+                    receipt.CanBeReleased = true;
                     continue;
                 }
 
@@ -544,7 +531,7 @@ namespace RelaNet
                             + "' cannot speak for player id " + receipt.PlayerId + " (expected '" +
                             pinfo.EndPoint.Address + ":" + pinfo.EndPoint.Port + "')");
 
-                    Socket.EndRead(skips);
+                    receipt.CanBeReleased = true;
                     continue;
                 }
 
@@ -552,22 +539,24 @@ namespace RelaNet
 
                 if (!receipt.Processed)
                 {
-                    // mark this packet as received
-                    MarkReceived(receipt.PlayerId, receipt.MessageId);
-
                     // reset their timer
                     TimeSinceReceivedPlayer[receipt.PlayerId] = 0;
 
                     // check for an ack
                     if (!receipt.IsImmediate)
                     {
+                        // mark this packet as received
+                        MarkReceived(receipt.PlayerId, receipt.MessageId);
+
                         // if it's not an immediate, there's an ack to be read
                         lastreceived = Bytes.ReadUShort(receipt.Data, c); c += 2;
-                        ackmid = lastreceived;
+                        OurReceipts[receipt.PlayerId][lastreceived] = true;
+
+                        ushort ackmid = lastreceived;
                         // the 8 proceeding bytes are bitarrays
                         for (int i = 0; i < 8; i++)
                         {
-                            ackbyte = receipt.Data[c]; c++;
+                            byte ackbyte = receipt.Data[c]; c++;
                             if (ackbyte == 0)
                                 continue; // no receipts
                             if (ackbyte == byte.MaxValue)
@@ -602,15 +591,95 @@ namespace RelaNet
                         {
                             // in the case where both are 0, no messages have been received
                             // so we check that before confirming anything
+
+                            ushort lastackmid = OurLastAckmids[receipt.PlayerId];
+                            ushort lastunreceived = OurLastUnreceiveds[receipt.PlayerId];
+                            OurLastAckmids[receipt.PlayerId] = ackmid;
+                            OurLastUnreceiveds[receipt.PlayerId] = nextunreceived;
+
                             OurReceipts[receipt.PlayerId][lastreceived] = true;
-                            // now loop from the last ackmid to nextunreceived, confirming
-                            while (ackmid != nextunreceived)
+
+                            // if our new ackmid is between lastackmid and lastunreceived
+                            // we don't need to loop 
+                            bool skiprolldown = false;
+                            if (lastunreceived <= lastackmid
+                                && ackmid <= lastackmid
+                                && ackmid >= lastunreceived)
                             {
-                                if (ackmid == 0)
-                                    ackmid = ushort.MaxValue;
-                                else
-                                    ackmid--;
-                                OurReceipts[receipt.PlayerId][ackmid] = true;
+                                skiprolldown = true;
+                            }
+                            else if (lastunreceived > lastackmid
+                                && (ackmid <= lastackmid
+                                || ackmid >= lastunreceived))
+                            {
+                                skiprolldown = true;
+                            }
+
+                            // now loop from the last ackmid to nextunreceived, confirming
+                            if (!skiprolldown)
+                            {
+                                while (ackmid != nextunreceived)
+                                {
+                                    if (ackmid == 0)
+                                        ackmid = ushort.MaxValue;
+                                    else
+                                        ackmid--;
+                                    
+                                    OurReceipts[receipt.PlayerId][ackmid] = true;
+
+                                    // if we run into our last ackmid again, we've already
+                                    // sorted through this, so we can stop.
+                                    if (ackmid == lastackmid)
+                                        break;
+                                }
+                            }
+
+                            // now we need to roll down from lastunreceived to next-
+                            // -unreceived
+                            skiprolldown = false;
+                            if (nextunreceived == lastunreceived)
+                            {
+                                skiprolldown = true;
+                            }
+                            else
+                            {
+                                // we only allow this kind of rolldown if it's within 512 
+                                // of the last unreceived index we had
+                                // technically this could be violated but. the math to
+                                // figure out if we should rolldown or not is very hard
+                                // and this simplification should hold most of the time
+                                skiprolldown = true;
+                                if (lastunreceived >= 512
+                                    && nextunreceived < lastunreceived
+                                    && nextunreceived > (lastunreceived - 512))
+                                {
+                                    skiprolldown = false;
+                                }
+                                else if (lastunreceived < 512
+                                    && nextunreceived < lastunreceived
+                                    && nextunreceived > 0)
+                                {
+                                    skiprolldown = false;
+                                }
+                                else if (lastunreceived < 512
+                                    && nextunreceived > ushort.MaxValue - 512)
+                                {
+                                    skiprolldown = false;
+                                }
+                            }
+
+                            // now loop from the last unreceived to nextunreceived, confirming
+                            if (!skiprolldown)
+                            {
+                                while (lastunreceived != nextunreceived)
+                                {
+                                    if (lastunreceived == 0)
+                                        lastunreceived = ushort.MaxValue;
+                                    else
+                                        lastunreceived--;
+
+                                    OurReceipts[receipt.PlayerId][lastunreceived] = true;
+                                }
                             }
                         }
                     }
@@ -644,9 +713,9 @@ namespace RelaNet
                         // and we don't reset player receipt timer over and over
                         // mark in the packet that it has been processed
                         receipt.Processed = true;
-                        // do not endread here, and add one to our skips so we skip this packet
-                        // the next time we read
-                        skips++;
+                        // note that we don't mark this packet as CanBeReleased
+                        // this is significant, because it means the socket will retain
+                        // the packet and we will try to read it again later
                         continue;
                     }
 
@@ -721,8 +790,9 @@ namespace RelaNet
                         ushort mid;
                         ushort tmid;
                         ushort lastmid = Bytes.ReadUShort(receipt.Data, c);
+                        int iters = 0;
                         c += 2;
-                        for (int i = 0; i < 100; i++)
+                        for (int i = 0; i < 10; i++)
                         {
                             mid = Bytes.ReadUShort(receipt.Data, c);
                             c += 2;
@@ -733,9 +803,17 @@ namespace RelaNet
                                 tmid = 0;
                             else
                                 tmid++;
-
+                            
                             while (tmid != lastmid)
                             {
+                                // failsafe to keep us from spending too much
+                                // time on this. If the range of unreceiveds is
+                                // too large, we'll only validate the first 100
+                                // of them.
+                                iters++;
+                                if (iters > 100)
+                                    break;
+
                                 // mark this as received
                                 OurReceipts[pinfo.PlayerId][tmid] = true;
 
@@ -749,10 +827,45 @@ namespace RelaNet
                         }
                         continue;
                     }
-                    else if (eventid == EventIgnore)
+                    else if (eventid == EventAck)
                     {
-                        ushort ignoreMid = Bytes.ReadUShort(receipt.Data, c); c += 2;
-                        MarkReceived(pinfo.PlayerId, ignoreMid);
+                        ushort ackmid = Bytes.ReadUShort(receipt.Data, c); c += 2;
+                        byte acklen = receipt.Data[c]; c++;
+
+                        OurReceipts[receipt.PlayerId][ackmid] = true;
+
+                        for (int i = 0; i < acklen; i++)
+                        {
+                            byte ackbyte = receipt.Data[c]; c++;
+
+                            if (ackbyte == 0)
+                                continue; // no receipts
+                            if (ackbyte == byte.MaxValue)
+                            {
+                                // all receipts
+                                for (int o = 0; o < 8; o++)
+                                {
+                                    if (ackmid == 0)
+                                        ackmid = ushort.MaxValue;
+                                    else
+                                        ackmid--;
+
+                                    OurReceipts[receipt.PlayerId][ackmid] = true;
+                                }
+                                continue;
+                            }
+                            // neither all or none, must check every bit
+                            for (int o = 0; o < 8; o++)
+                            {
+                                if (ackmid == 0)
+                                    ackmid = ushort.MaxValue;
+                                else
+                                    ackmid--;
+
+                                if (Bits.CheckBit(ackbyte, o))
+                                    OurReceipts[receipt.PlayerId][ackmid] = true;
+                            }
+                        }
                         continue;
                     }
                     else if (eventid == EventChangeMaxPlayers)
@@ -803,27 +916,21 @@ namespace RelaNet
                         c = Executors[ExecutorCount - 1].Receive(receipt, pinfo, eventid, c);
                 }
 
-                Socket.EndRead(skips);
+                receipt.CanBeReleased = true;
             }
+
+            // finally, allow our socket to release spent packets
+            Socket.EndRead();
         }
 
         private void ProcessResends(float elapsedms)
         {
-            ushort orderedMostRecent = OrderedMids[0];
-
             for (int i = 0; i < Sents.Count; i++)
             {
                 Sent sent = Sents.Values[i];
                 if (!sent.Finalized)
                     continue; // if the sent hasn't been finalized yet, don't bother sending it.
-
-                if (sent.IsOrdered && sent.MessageId != orderedMostRecent)
-                {
-                    // if it's an ordered packet, and it's not the most recent,
-                    // don't send it yet
-                    continue;
-                }
-
+                
                 bool skipSend = false;
                 if (sent.Retries > 0)
                 {
@@ -849,8 +956,11 @@ namespace RelaNet
 
                     // check if player has marked this message received
                     // if so, remove it
-                    if (OurReceipts[pid][sent.MessageId])
+                    if (OurReceipts[pid][sent.TargetMessageId[o]])
                     {
+                        // clear out the messageidpool so this mid can be reused
+                        MessageIdToPoolIdMap[pid][sent.TargetMessageId[o]] = -1;
+                        
                         sent.RemoveTargetIndex(o, skiphandshake: false);
                         o--;
                         continue;
@@ -860,7 +970,7 @@ namespace RelaNet
                     {
                         // add the ack for this player to the message
                         sent.Data[Sent.TargetPidPosition] = pid;
-                        sent.LoadAck(pid);
+                        sent.LoadAckFromIndex(o);
                         if (sent.IsFastOrdered)
                         {
                             sent.LoadFastOrderValue(pid);
@@ -889,68 +999,19 @@ namespace RelaNet
                 if (sent.Retries == 0
                     || sent.AwaitingLength == 0)
                 {
-                    if (sent.IsOrdered)
+                    // trigger handshake handler for unresolved players
+                    for (int o = 0; o < sent.AwaitingLength; o++)
                     {
-                        // if it was an ordered message, update the order list
-                        OrderedCount--;
-                        for (int o = 0; o < OrderedCount; o++)
-                            OrderedMids[o] = OrderedMids[o + 1];
+                        byte pid = sent.TargetPids[o];
+                        // clear out the messageidpool so this mid can be reused
+                        MessageIdToPoolIdMap[pid][sent.TargetMessageId[o]] = -1;
+
+                        sent.RemoveTargetIndex(o, skiphandshake: true);
+                        o--;
                     }
 
                     Sents.ReturnIndex(i);
                     i--;
-                }
-            }
-        }
-
-        private void ProcessFinalize()
-        {
-            // check each sent
-            // if it is retry or reliable, we need to finalize it
-            // what this does is prevent more players from being added to it
-            // and (this is the important part) we tell each player who
-            // is not a target of that sent, that they do not need that mid
-            // we send EventIgnore with the mid attached. 
-
-            // this is important because it avoids lock states where
-            // we have sent many mids that don't belong to this player
-            // and they can no longer easily ack/ follow the mid cycle
-
-            Sent sent;
-            Sent psent;
-            bool found = false;
-            for (int i = 0; i < Sents.Count; i++)
-            {
-                sent = Sents.Values[i];
-
-                if (sent.IsImmediate || sent.Finalized || !sent.HasMessageId)
-                    continue; // immediates don't count, as they have no mid
-
-                sent.Finalized = true;
-
-                // we need to find each player who is *not* a target of this sent
-                for (int o = 0; o < PlayerInfos.Length; o++)
-                {
-                    byte pid = PlayerInfos.Values[o].PlayerId;
-
-                    found = false;
-                    // TODO: could there be a better way to do this search?
-                    for (int p = 0; p < sent.AwaitingLength; p++)
-                    {
-                        if (sent.TargetPids[p] == pid)
-                        {
-                            found = true;
-                            break;
-                        }
-                    }
-
-                    if (found)
-                        continue; // this player is a target, don't ignore
-
-                    // this player is not a target, add ignore
-                    psent = GetReliablePlayerSend(pid, 4);
-                    Bytes.WriteUShort(psent.Data, EventIgnore, psent.Length); psent.Length += 2;
-                    Bytes.WriteUShort(psent.Data, sent.MessageId, psent.Length); psent.Length += 2;
                 }
             }
         }
@@ -1156,8 +1217,6 @@ namespace RelaNet
                 //       be performed upon it.
                 if (CurrentRetryAllSent != null)
                     CurrentRetryAllSent.Data[0] = OurPlayerId;
-                if (CurrentOrderedAllSent != null)
-                    CurrentOrderedAllSent.Data[0] = OurPlayerId;
 
                 if (CurrentReliableAllSent != null)
                     CurrentReliableAllSent.Data[0] = OurPlayerId;
@@ -1393,6 +1452,18 @@ namespace RelaNet
             }
             PlayerLastReceivedMessageId[pinfoindex] = -1;
 
+            while (PlayerMessagesSinceAck.Length <= pinfoindex)
+            {
+                // not enough, need to expand
+                int[] newlasts = new int[PlayerMessagesSinceAck.Length * 2];
+                for (int i = 0; i < PlayerMessagesSinceAck.Length; i++)
+                    newlasts[i] = PlayerMessagesSinceAck[i];
+                for (int i = PlayerMessagesSinceAck.Length; i < newlasts.Length; i++)
+                    newlasts[i] = -1;
+                PlayerMessagesSinceAck = newlasts;
+            }
+            PlayerMessagesSinceAck[pinfoindex] = PlayerMessagesSinceAckMax;
+
             while (PlayerReceipts.Length <= pinfoindex)
             {
                 // not enough, need to expand
@@ -1475,6 +1546,49 @@ namespace RelaNet
                 OurReceipts = nbas;
             }
             OurReceipts[pinfoindex].SetAll(false); // clear our receipts
+
+            while (OurLastAckmids.Length <= pinfoindex)
+            {
+                ushort[] na = new ushort[OurLastAckmids.Length * 2];
+                for (int i = 0; i < OurLastAckmids.Length; i++)
+                    na[i] = OurLastAckmids[i];
+                OurLastAckmids = na;
+            }
+            OurLastAckmids[pinfoindex] = 0;
+
+            while (OurLastUnreceiveds.Length <= pinfoindex)
+            {
+                ushort[] na = new ushort[OurLastUnreceiveds.Length * 2];
+                for (int i = 0; i < OurLastUnreceiveds.Length; i++)
+                    na[i] = OurLastUnreceiveds[i];
+                OurLastUnreceiveds = na;
+            }
+            OurLastUnreceiveds[pinfoindex] = 0;
+
+            while (NextMessageId.Length <= pinfoindex)
+            {
+                ushort[] na = new ushort[NextMessageId.Length * 2];
+                for (int i = 0; i < NextMessageId.Length; i++)
+                    na[i] = NextMessageId[i];
+                NextMessageId = na;
+            }
+            NextMessageId[pinfoindex] = 0;
+
+            while (MessageIdToPoolIdMap.Length <= pinfoindex)
+            {
+                int[][] na = new int[MessageIdToPoolIdMap.Length * 2][];
+                for (int i = 0; i < MessageIdToPoolIdMap.Length; i++)
+                    na[i] = MessageIdToPoolIdMap[i];
+                for (int i = MessageIdToPoolIdMap.Length; i < na.Length; i++)
+                {
+                    na[i] = new int[ushort.MaxValue + 1];
+                    for (int o = 0; o < na[i].Length; o++)
+                        na[i][o] = -1;
+                }
+                MessageIdToPoolIdMap = na;
+            }
+            for (int i = 0; i < MessageIdToPoolIdMap[pinfoindex].Length; i++)
+                MessageIdToPoolIdMap[pinfoindex][i] = -1;
 
             // when a new player joins, we must begin a new FastOrderedAllSent
             // (because otherwise the new player won't be on the current buffer for it...)
@@ -1592,32 +1706,6 @@ namespace RelaNet
             send = BeginNewSend(SpecialNormal);
             CurrentReliablePlayerSent[pid] = send;
             return send;
-        }
-
-        // DEPRECIATED:
-        // Use FastOrderedAllSend, it is superior in every way
-        private Sent GetOrderedAllSend(int requestedLength)
-        {
-            if (requestedLength > UdpClientExtensions.MaxUdpSize)
-                throw new Exception("Packet splitting not supported yet");
-            if (CurrentOrderedAllSent.Length + requestedLength <= UdpClientExtensions.MaxUdpSize)
-                return CurrentOrderedAllSent;
-
-            // we can only send it immediately if there are no other ordered packets
-            // waiting, for ordered packets we only send one at a time
-            if (OrderedCount == 0)
-                SendReliableAll(CurrentOrderedAllSent);
-            // normally, we get mid assigned from sending. But we need it either way
-            // so if we don't send, assign a mid now
-            else if (!CurrentOrderedAllSent.HasMessageId)
-                AssignMessageId(CurrentOrderedAllSent);
-
-            // mark the packet as ordered
-            CurrentOrderedAllSent.IsOrdered = true;
-            OrderedMids[OrderedCount] = CurrentOrderedAllSent.MessageId;
-            // create a new send
-            CurrentOrderedAllSent = BeginNewSend(SpecialNormal);
-            return CurrentOrderedAllSent;
         }
 
         public Sent GetFastOrderedAllSend(int requestedLength)
@@ -1745,10 +1833,9 @@ namespace RelaNet
         }
 
         // stores the handshake within the sent structure
-        private void AddHandshakeToSend(Sent sent, byte pid)
+        private void AddHandshakeToSend(Sent sent, byte pid, int ackIndex)
         {
-            int ackIndex = sent.AddAck(pid);
-            byte[] ack = sent.Acks[ackIndex];
+            byte[] ack = sent.TargetAcks[ackIndex];
 
             // structure of an Ack:
             // 2 bytes - ushort id of latest message received
@@ -1790,6 +1877,11 @@ namespace RelaNet
                 nack = 0;
                 for (int o = 0; o < 8; o++)
                 {
+                    if (currentmid == 0)
+                        currentmid = ushort.MaxValue;
+                    else
+                        currentmid--;
+
                     if (currentmid == nextunused)
                     {
                         // add a missing bit
@@ -1797,11 +1889,6 @@ namespace RelaNet
                         // find the next unused
                         nextunused = precs[currentmid];
                     }
-
-                    if (currentmid == 0)
-                        currentmid = ushort.MaxValue;
-                    else
-                        currentmid--;
                 }
 
                 ack[i + 2] = nack;
@@ -1894,11 +1981,23 @@ namespace RelaNet
                     break;
             }
 
+            // now check if we need to send an ack
+            // we do this periodically as we receive messages
+            // to ensure that the sender knows we've received them
+            // this rate is controlled by PlayerMessagesSinceAckMax
+            PlayerMessagesSinceAck[pid]--;
+            if (PlayerMessagesSinceAck[pid] <= 0)
+            {
+                PlayerMessagesSinceAck[pid] = PlayerMessagesSinceAckMax;
+                SendAck(pid);
+            }
+
             // now check if this is the latest received
             int oldLatest = PlayerLastReceivedMessageId[pid];
             if (oldLatest == -1)
             {
                 PlayerLastReceivedMessageId[pid] = mid;
+                PlayerMessagesSinceAck[pid]--;
                 return; // first message received
             }
 
@@ -1908,7 +2007,6 @@ namespace RelaNet
 
             // the mid can only move up if it is within 512 of the latest mid
             // normally the math is very simple here, UNLESS we are in one specific region
-
             if (oldLatestMid >= ushort.MaxValue - 512)
             {
                 if (mid > oldLatestMid || mid < 512)
@@ -1937,12 +2035,49 @@ namespace RelaNet
 
             if (mid / 512 != oldLatestMid / 512)
             {
-                ushort startpoint = (ushort)(((oldLatestMid / 512) + 1) * 512);
+                int startpointint = (((oldLatestMid / 512) + 2) * 512);
+                if (startpointint > ushort.MaxValue)
+                    startpointint -= (ushort.MaxValue + 1);
+
+                ushort startpoint = (ushort)startpointint;
+
                 for (int i = 0; i < 512; i++)
                 {
                     precs[startpoint] = startpoint;
                     startpoint++;
                 }
+            }
+        }
+
+        public void SendAck(byte pid)
+        {
+            ushort[] precs = PlayerReceipts[pid];
+
+            int acklen = (2 * (PlayerMessagesSinceAckMax / 8));
+            int slen = 2 + 2 + 1 + acklen;
+            Sent sent = GetReliablePlayerSend(pid, slen);
+
+            ushort ackmid = (ushort)PlayerLastReceivedMessageId[pid];
+
+            sent.WriteUShort(EventAck);
+            sent.WriteUShort(ackmid);
+            sent.WriteByte((byte)acklen);
+
+            for (int i = 0; i < acklen; i++)
+            {
+                byte ackbyte = 0;
+                for (int o = 0; o < 8; o++)
+                {
+                    if (ackmid != 0)
+                        ackmid--;
+                    else
+                        ackmid = ushort.MaxValue;
+
+                    if (precs[ackmid] != ackmid)
+                        ackbyte = Bits.AddTrueBit(ackbyte, o);
+                }
+
+                sent.WriteByte(ackbyte);
             }
         }
             
@@ -1984,24 +2119,25 @@ namespace RelaNet
             }
         }
 
-        public void SendRetry(Sent sent, PlayerInfo pinfo, int maxRetries = 3,
+        public int SendRetry(Sent sent, PlayerInfo pinfo, int maxRetries = 3,
             float retryTimer = 15f)
         {
             // sends and retries until handshook or MaxRetries has passed
             if (sent.IsImmediate)
                 Abandon("Tried to send immediate as retry");
             if (!pinfo.Active)
-                return;
+                return -1;
             sent.Retries = maxRetries;
             sent.RetryTimerMax = retryTimer;
-            if (!sent.HasMessageId)
-                AssignMessageId(sent);
-            sent.AddTarget(pinfo.PlayerId);
+            int targetIndex = sent.AddTarget(pinfo.PlayerId, GetNextMessageId(sent, pinfo.PlayerId));
             // build ack for player
-            AddHandshakeToSend(sent, pinfo.PlayerId);
-            sent.LoadAck(pinfo.PlayerId);
+            AddHandshakeToSend(sent, pinfo.PlayerId, targetIndex);
+            sent.LoadAckFromIndex(targetIndex);
             sent.Data[Sent.TargetPidPosition] = pinfo.PlayerId;
             Socket.Send(sent.Data, sent.Length, pinfo.EndPoint);
+
+            sent.Finalized = true;
+            return targetIndex;
         }
 
         public void SendRetryAll(Sent sent, int maxRetries = 3,
@@ -2011,41 +2147,42 @@ namespace RelaNet
                 Abandon("Tried to send immediate as retry");
             sent.Retries = maxRetries;
             sent.RetryTimerMax = retryTimer;
-            if (!sent.HasMessageId)
-                AssignMessageId(sent);
             for (int i = 0; i < PlayerInfos.Count; i++)
             {
                 PlayerInfo pinfo = PlayerInfos.Values[i];
                 if (pinfo.Active)
                 {
-                    sent.AddTarget(pinfo.PlayerId);
+                    int targetIndex = sent.AddTarget(pinfo.PlayerId, GetNextMessageId(sent, pinfo.PlayerId));
                     // build ack for player
-                    AddHandshakeToSend(sent, pinfo.PlayerId);
-                    sent.LoadAck(pinfo.PlayerId);
+                    AddHandshakeToSend(sent, pinfo.PlayerId, targetIndex);
+                    sent.LoadAckFromIndex(targetIndex);
                     sent.Data[Sent.TargetPidPosition] = pinfo.PlayerId;
                     Socket.Send(sent.Data, sent.Length, pinfo.EndPoint);
                     if (!IsHost)
                         break; // if we're a client, there's only one endpoint to talk to
                 }
             }
+
+            sent.Finalized = true;
         }
 
-        public void SendReliable(Sent sent, PlayerInfo pinfo)
+        public int SendReliable(Sent sent, PlayerInfo pinfo)
         {
             // guarantees arrival eventually, sends until handshook
             if (sent.IsImmediate)
                 Abandon("Tried to send immediate as reliable");
             if (!pinfo.Active)
-                return;
+                return -1;
             sent.Retries = -1;
-            if (!sent.HasMessageId)
-                AssignMessageId(sent);
-            sent.AddTarget(pinfo.PlayerId);
+            int targetIndex = sent.AddTarget(pinfo.PlayerId, GetNextMessageId(sent, pinfo.PlayerId));
             // build ack for player
-            AddHandshakeToSend(sent, pinfo.PlayerId);
-            sent.LoadAck(pinfo.PlayerId);
+            AddHandshakeToSend(sent, pinfo.PlayerId, targetIndex);
+            sent.LoadAckFromIndex(targetIndex);
             sent.Data[Sent.TargetPidPosition] = pinfo.PlayerId;
             Socket.Send(sent.Data, sent.Length, pinfo.EndPoint);
+
+            sent.Finalized = true;
+            return targetIndex;
         }
 
         public void SendReliableAll(Sent sent)
@@ -2053,23 +2190,23 @@ namespace RelaNet
             if (sent.IsImmediate)
                 Abandon("Tried to send immediate as reliable");
             sent.Retries = -1;
-            if (!sent.HasMessageId)
-                AssignMessageId(sent);
             for (int i = 0; i < PlayerInfos.Count; i++)
             {
                 PlayerInfo pinfo = PlayerInfos.Values[i];
                 if (pinfo.Active)
                 {
-                    sent.AddTarget(pinfo.PlayerId);
+                    int targetIndex = sent.AddTarget(pinfo.PlayerId, GetNextMessageId(sent, pinfo.PlayerId));
                     // build ack for player
-                    AddHandshakeToSend(sent, pinfo.PlayerId);
-                    sent.LoadAck(pinfo.PlayerId);
+                    AddHandshakeToSend(sent, pinfo.PlayerId, targetIndex);
+                    sent.LoadAckFromIndex(targetIndex);
                     sent.Data[Sent.TargetPidPosition] = pinfo.PlayerId;
                     Socket.Send(sent.Data, sent.Length, pinfo.EndPoint);
                     if (!IsHost)
                         break; // if we're a client, there's only one endpoint to talk to
                 }
             }
+
+            sent.Finalized = true;
         }
 
         public void SendFastOrderedAll(Sent sent)
@@ -2077,18 +2214,16 @@ namespace RelaNet
             if (sent.IsImmediate)
                 Abandon("Tried to send immediate as reliable");
             sent.Retries = -1;
-            if (!sent.HasMessageId)
-                AssignMessageId(sent);
             for (int i = 0; i < PlayerInfos.Count; i++)
             {
                 PlayerInfo pinfo = PlayerInfos.Values[i];
                 // only send if we have a valid set fastorder value
                 if (pinfo.Active && sent.FastOrderSets[pinfo.PlayerId])
                 {
-                    sent.AddTarget(pinfo.PlayerId);
+                    int targetIndex = sent.AddTarget(pinfo.PlayerId, GetNextMessageId(sent, pinfo.PlayerId));
                     // build ack for player
-                    AddHandshakeToSend(sent, pinfo.PlayerId);
-                    sent.LoadAck(pinfo.PlayerId);
+                    AddHandshakeToSend(sent, pinfo.PlayerId, targetIndex);
+                    sent.LoadAckFromIndex(targetIndex);
                     // put in the orderid for each player
                     sent.LoadFastOrderValue(pinfo.PlayerId);
                     sent.Data[Sent.TargetPidPosition] = pinfo.PlayerId;
@@ -2097,27 +2232,25 @@ namespace RelaNet
                         break; // if we're a client, there's only one endpoint to talk to
                 }
             }
-        }
 
-        private void AssignMessageId(Sent sent)
+            sent.Finalized = true;
+        }
+        
+        private ushort GetNextMessageId(Sent sent, byte pid)
         {
             sent.HasMessageId = true;
-            sent.MessageId = NextMessageId;
-            MessageIdToPoolIdMap[NextMessageId] = sent.PoolIndex;
+            ushort nmid = NextMessageId[pid];
+            MessageIdToPoolIdMap[pid][nmid] = sent.PoolIndex;
 
             // clear our receipts
-            for (int i = 0; i < OurReceipts.Length; i++)
-                OurReceipts[i][NextMessageId] = false;
-
-            // put the mid into the message itself
-            Bytes.WriteUShort(sent.Data, NextMessageId, Sent.MidPosition);
+            OurReceipts[pid][nmid] = false;
 
             // now find the next mid value
-            if (NextMessageId == ushort.MaxValue)
-                NextMessageId = 0;
+            if (nmid == ushort.MaxValue)
+                NextMessageId[pid] = 0;
             else
-                NextMessageId++;
-            while (MessageIdToPoolIdMap[NextMessageId] != -1)
+                NextMessageId[pid]++;
+            while (MessageIdToPoolIdMap[pid][NextMessageId[pid]] != -1)
             {
                 // if, when creating a new messageid, we discover that a next messageid 
                 // is already taken, it means this: a client has yet to
@@ -2128,13 +2261,15 @@ namespace RelaNet
                 // if they actually receive it.
                 // in a way, things should work out.
 
-                if (NextMessageId == ushort.MaxValue)
-                    NextMessageId = 0;
+                if (NextMessageId[pid] == ushort.MaxValue)
+                    NextMessageId[pid] = 0;
                 else
-                    NextMessageId++;
-                if (NextMessageId == sent.MessageId) // if we loop back around
+                    NextMessageId[pid]++;
+                if (NextMessageId[pid] == nmid) // if we loop back around
                     throw new Exception("No more available message ids!");
             }
+
+            return nmid;
         }
 
         private void SendHeartbeat()
@@ -2166,8 +2301,8 @@ namespace RelaNet
                 
                 ushort[] precs = PlayerReceipts[pinfo.PlayerId];
                 ushort mid = precs[(ushort)latest];
-                // for the heartbeat, just write the last 100 unreceived message ids
-                for (int o = 0; o < 100; o++)
+                // for the heartbeat, just write the last 10 unreceived message ids
+                for (int o = 0; o < 10; o++)
                 {
                     Bytes.WriteUShort(send.Data, mid, send.Length);
                     send.Length += 2;

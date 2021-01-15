@@ -161,7 +161,7 @@ namespace RelaNet.Snapshots
             if (innerid == -1)
                 return 0;
 
-            SnapHistory<T> h = SecondData.Values[FirstData.IdsToIndices[innerid]];
+            SnapHistory<T> h = SecondData.Values[SecondData.IdsToIndices[innerid]];
 
             return Packer.PrepPackFull(
                 h.Shots[h.FindIndex(timestamp)], out PackInfo);
@@ -180,42 +180,69 @@ namespace RelaNet.Snapshots
 
 
         // Pack Delta
-        public byte PrepDeltaFirst(byte entityid, ushort timestamp, ushort basisTimestamp)
+
+        public bool PrepDeltaFirst(byte entityid, ushort timestamp, ushort basisTimestamp,
+            out byte len)
         {
+            len = 0;
+
             // if ``, can't possibly belong to this snapper
             if (entityid >= FirstEntityIdToInnerId.Length)
-                return 0;
+                return false;
 
             // if ``, this snapper doesn't have this entity
             int innerid = FirstEntityIdToInnerId[entityid];
             if (innerid == -1)
-                return 0;
+                return false;
 
             SnapHistory<T> h = FirstData.Values[FirstData.IdsToIndices[innerid]];
 
-            return Packer.PrepPackDelta(
-                h.Shots[h.FindIndex(timestamp)],
-                h.Shots[h.FindIndex(basisTimestamp)],
+            int index = h.FindIndex(timestamp);
+            if (index == -1)
+                return false;
+
+            int basisIndex = h.FindIndex(basisTimestamp);
+            if (basisIndex == -1)
+                return false;
+
+            len = Packer.PrepPackDelta(
+                h.Shots[index],
+                h.Shots[basisIndex],
                 out PackInfo);
+
+            return true;
         }
 
-        public byte PrepDeltaSecond(ushort entityid, ushort timestamp, ushort basisTimestamp)
+        public bool PrepDeltaSecond(ushort entityid, ushort timestamp, ushort basisTimestamp,
+            out byte len)
         {
+            len = 0;
+
             // if ``, can't possibly belong to this snapper
             if (entityid >= SecondEntityIdToInnerId.Length)
-                return 0;
+                return false;
 
             // if ``, this snapper doesn't have this entity
             int innerid = SecondEntityIdToInnerId[entityid];
             if (innerid == -1)
-                return 0;
+                return false;
 
-            SnapHistory<T> h = SecondData.Values[FirstData.IdsToIndices[innerid]];
+            SnapHistory<T> h = SecondData.Values[SecondData.IdsToIndices[innerid]];
 
-            return Packer.PrepPackDelta(
-                h.Shots[h.FindIndex(timestamp)],
-                h.Shots[h.FindIndex(basisTimestamp)],
+            int index = h.FindIndex(timestamp);
+            if (index == -1)
+                return false;
+
+            int basisIndex = h.FindIndex(basisTimestamp);
+            if (basisIndex == -1)
+                return false;
+
+            len = Packer.PrepPackDelta(
+                h.Shots[index],
+                h.Shots[basisIndex],
                 out PackInfo);
+
+            return true;
         }
 
         public void WriteDeltaFirst(Sent sent)
@@ -549,7 +576,7 @@ namespace RelaNet.Snapshots
                 return false; // out of bounds
 
             int basisIndex = sh.FindIndex(basisTimestamp);
-            if (index < 0 || index >= sh.Shots.Length)
+            if (basisIndex < 0 || basisIndex >= sh.Shots.Length)
                 return false; // out of bounds
 
             Packer.UnpackDelta(ref sh.Shots[index], sh.Shots[basisIndex], blob, blobstart, blobcount);

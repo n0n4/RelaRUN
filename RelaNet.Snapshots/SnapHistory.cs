@@ -71,9 +71,12 @@ namespace RelaNet.Snapshots
 
             // if the timestamp is behind our leading edge,
             // the same logic applies
-            
+
             // half of the storage window is reserved for future
             // timestamps, and half is reserved for past timestamps.
+            if (index > ushort.MaxValue - (Shots.Length / 2))
+                index -= (ushort.MaxValue + 1);
+
             if (index > LeadingIndex + (Shots.Length / 2))
                 return -1;
 

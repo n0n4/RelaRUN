@@ -18,6 +18,8 @@ namespace RelaNet.Sockets
         private Receipt WritingReceipt;
         private NetLogger NetLogger;
         private CancellationTokenSource CancellationTokenSource;
+        
+        private int ReadingIndex = 0;
 
         public ISocket[] DirectTargets = new ISocket[0];
         public IPEndPoint[] DirectTargetIps = new IPEndPoint[0];
@@ -75,7 +77,7 @@ namespace RelaNet.Sockets
             // but it guarantees that the last receipt, which is the empty one being
             // written to, stays at the end of the pool.
             Pool = new ReArrayIdPool<Receipt>(10, maxQueueSize,
-                PoolCreate, (obj) => { obj.Clear(); }, ordered: true);
+                PoolCreate, (obj) => { obj.Clear(); });
             WritingReceipt = Pool.Request();
 
             CancellationTokenSource = new CancellationTokenSource();
@@ -263,26 +265,39 @@ namespace RelaNet.Sockets
             return new Receipt(Pool);
         }
 
-        public bool CanRead(int skips)
+        public void StartRead()
         {
-            // must be at least two elements to read, since the last element is always the
-            // empty buffer being written to
-            return (Pool.Count - skips) > 1;
+            ReadingIndex = 0;
+            // caveat: if the first receipt is the receiving one, skip it
+            if (Pool.Count == 0)
+                return;
+            if (Pool.Values[ReadingIndex].PoolId == WritingReceipt.PoolId)
+                ReadingIndex++;
         }
 
-        public Receipt Read(int skips)
+        public bool CanRead()
         {
-            // we read the second to last from the end
-            // because the last is the empty one being written to
-            // and returning the second to last item means that
-            // the fewest possible indices will need to be moved
-            // since every higher index must be moved down a spot once one is removed
-            return Pool.Values[(Pool.Count - skips) - 2];
+            return ReadingIndex < Pool.Count;
         }
 
-        public void EndRead(int skips)
+        public Receipt Read()
         {
-            Pool.ReturnIndex((Pool.Count - skips) - 2);
+            int index = ReadingIndex;
+            // increment the index
+            ReadingIndex++;
+            // skip next if it is the receiving
+            if (Pool.Values[ReadingIndex].PoolId == WritingReceipt.PoolId)
+                ReadingIndex++;
+            return Pool.Values[index];
+        }
+
+        public void EndRead()
+        {
+            for (int i = Pool.Count - 1; i >= 0; i--)
+            {
+                if (Pool.Values[i].CanBeReleased)
+                    Pool.ReturnIndex(i);
+            }
         }
     }
 }

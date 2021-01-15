@@ -163,11 +163,15 @@ namespace RelaNet.Snapshots
         public ushort ClientTime { get; private set; } = 0;
         public byte ClientSequenceNumber { get; private set; } = 0;
         public float ClientTickMS { get; private set; } = 0;
-        // ushort version of the tick ms, for transmission with input commands
-        private ushort ClientTickMSushort = 0;
-        public float ClientTickMSInputOffset { get; private set; } = 0;
         public float ClientTickMSAdjustment = 100;
 
+
+        public ushort ClientInputTime { get; private set; } = 0;
+        public byte ClientInputSequenceNumber { get; private set; } = 0;
+        public float ClientInputTickMS { get; private set; } = 0;
+        // ushort version of the tick ms, for transmission with input commands
+        private ushort ClientInputTickMSushort = 0;
+        public float ClientInputTickMSInputOffset { get; private set; } = 0;
 
         // receiving values:
         // these values are stored each time we hit a packet header
@@ -179,7 +183,7 @@ namespace RelaNet.Snapshots
 
         // input methods
         private Sent ClientInputSent = null;
-        private float ClientInputTickMS = 0;
+        private float ClientInputSentTickMS = 0;
         private ISnapInputManager[] InputManagers = new ISnapInputManager[4];
         private int InputManagerCount = 0;
         
@@ -419,10 +423,10 @@ namespace RelaNet.Snapshots
             else
             {
                 // send client inputs if necessary
-                ClientInputTickMS += elapsedMS;
-                if (ClientInputTickMS >= TickMSTarget / 2f && ClientInputSent.Length > Sent.EmptySizeWithAck)
+                ClientInputSentTickMS += elapsedMS;
+                if (ClientInputSentTickMS >= TickMSTarget / 2f && ClientInputSent.Length > Sent.EmptySizeWithAck)
                 {
-                    ClientInputTickMS = 0;
+                    ClientInputSentTickMS = 0;
 
                     Server.SendReliableAll(ClientInputSent);
                     ClientInputSent = Server.BeginNewSend(NetServer.SpecialNormal);
@@ -525,8 +529,34 @@ namespace RelaNet.Snapshots
                 }
 
                 ClientTickMS = over;
-                ClientTickMSushort = (ushort)(ClientTickMS * 100.0f);
-                ClientTickMSInputOffset = 0;
+
+                float inadj = ClientTickMSAdjustment + TickMS;
+                ushort inticks = (ushort)Math.Ceiling(inadj / TickMSTarget);
+                float inover = TickMSTarget - (inadj - (inticks * TickMSTarget));
+
+                ClientInputTime = CurrentTime;
+                if (inticks > (ushort.MaxValue - ClientInputTime))
+                {
+                    // special case, going to roll forward over
+                    inticks -= (ushort)((ushort.MaxValue + 1) - ClientInputTime);
+                    ClientInputTime = inticks;
+                    ClientInputSequenceNumber = SequenceNumber;
+                    // must be on next sequence number
+                    if (ClientInputSequenceNumber == byte.MaxValue)
+                        ClientInputSequenceNumber = 0;
+                    else
+                        ClientInputSequenceNumber++;
+                }
+                else
+                {
+                    // simple case, don't need to roll over
+                    ClientInputTime += inticks;
+                    ClientInputSequenceNumber = SequenceNumber;
+                }
+
+                ClientInputTickMS = inover;
+                ClientInputTickMSushort = (ushort)(ClientInputTickMS * 100.0f);
+                ClientInputTickMSInputOffset = 0;
 
                 // now render
                 if (!ResimulateRequested)
@@ -835,6 +865,7 @@ namespace RelaNet.Snapshots
                     Sent send = GetClientInputSentForOther(3);
                     send.WriteUShort(EventResendFirstClass);
                     send.WriteByte(eid);
+                    send.WriteUShort(ReceiveCurrentTime);
                 }
                 return c + nlen;
             }
@@ -865,6 +896,7 @@ namespace RelaNet.Snapshots
                     Sent send = GetClientInputSentForOther(4);
                     send.WriteUShort(EventResendSecondClass);
                     send.WriteUShort(eid);
+                    send.WriteUShort(ReceiveCurrentTime);
                 }
                 return c + nlen;
             }
@@ -891,7 +923,7 @@ namespace RelaNet.Snapshots
                 byte nlen = receipt.Data[c]; c++;
 
                 // store the eid:etype mapping for later usage
-                if (EntityIdToSnapperIdSecondClass.Length < eid)
+                if (EntityIdToSnapperIdSecondClass.Length <= eid)
                 {
                     // resize
                     int alen = EntityIdToSnapperIdSecondClass.Length * 2;
@@ -899,6 +931,8 @@ namespace RelaNet.Snapshots
                     short[] na = new short[alen];
                     for (int i = 0; i < EntityIdToSnapperIdSecondClass.Length; i++)
                         na[i] = EntityIdToSnapperIdSecondClass[i];
+                    for (int i = EntityIdToSnapperIdSecondClass.Length; i < na.Length; i++)
+                        na[i] = -1;
                     EntityIdToSnapperIdSecondClass = na;
                 }
                 EntityIdToSnapperIdSecondClass[eid] = etype;
@@ -1116,10 +1150,10 @@ namespace RelaNet.Snapshots
             {
                 // write the header for our requester
                 send.WriteUShort(EventClientInput);
-                send.WriteUShort(ClientTime);
-                send.WriteUShort(ClientTickMSushort);
-                ClientTickMSInputOffset += 100.0f;
-                ClientTickMSushort++; // important concept here:
+                send.WriteUShort(ClientInputTime);
+                send.WriteUShort(ClientInputTickMSushort);
+                ClientInputTickMSInputOffset += 100.0f;
+                ClientInputTickMSushort++; // important concept here:
                 // each time we write out an input, increment the tickms ushort by 1
                 // this ensures that our inputs are ordered properly.
                 send.WriteByte(inputIndex);
@@ -1135,9 +1169,9 @@ namespace RelaNet.Snapshots
             // write the header for our requester
             send.WriteUShort(EventClientInput);
             send.WriteUShort(ClientTime);
-            send.WriteUShort(ClientTickMSushort);
-            ClientTickMSInputOffset += 100.0f;
-            ClientTickMSushort++; // see above note on tickmsushort
+            send.WriteUShort(ClientInputTickMSushort);
+            ClientInputTickMSInputOffset += 100.0f;
+            ClientInputTickMSushort++; // see above note on tickmsushort
             send.WriteByte(inputIndex);
             return send;
         }
@@ -1289,9 +1323,9 @@ namespace RelaNet.Snapshots
             if (send.Length + requestedLength <= UdpClientExtensions.MaxUdpSize)
                 return send;
             // send the current send
-            Server.SendRetry(send, Server.PlayerInfos.Values[Server.PlayerInfos.IdsToIndices[pid]],
+            int targetIndex = Server.SendRetry(send, Server.PlayerInfos.Values[Server.PlayerInfos.IdsToIndices[pid]],
                 SentMaxRetries, SentRetryTimer);
-            CurrentHandshakes[pid].AckNo = send.MessageId;
+            CurrentHandshakes[pid].AckNo = send.TargetMessageId[targetIndex];
 
             // create a new send
             send = BeginNewSend(pid);
@@ -1321,9 +1355,10 @@ namespace RelaNet.Snapshots
                 // and the sent is freed up, which means it is already
                 // gone by the time the handshake arrives.
                 
-                Server.SendRetry(send, Server.PlayerInfos.Values[Server.PlayerInfos.IdsToIndices[pid]],
+                int targetIndex = Server.SendRetry(send, Server.PlayerInfos.Values[Server.PlayerInfos.IdsToIndices[pid]],
                     SentMaxRetries, SentRetryTimer);
-                CurrentHandshakes[pid].AckNo = send.MessageId;
+                if (targetIndex != -1)
+                    CurrentHandshakes[pid].AckNo = send.TargetMessageId[targetIndex];
 
                 // create a new send
                 send = BeginNewSend(pid);
@@ -1364,8 +1399,10 @@ namespace RelaNet.Snapshots
             return send;
         }
 
-        private void HandshakeHandler(byte pid,  ushort ackNo)
+        private void HandshakeHandler(byte pid,  ushort ackNo, bool received)
         {
+            // if unreceived, return handshake to pool so it doesn't get stuck
+
             // 1. lookup corresponding handshake in PlayerHandshakes[pid]
             //    where h.AckNo == ackNo
             ReArrayIdPool<SnapHandshake> ph = PlayerHandshakes[pid];
@@ -1378,28 +1415,32 @@ namespace RelaNet.Snapshots
                     //    BasisTimestampsFirstClass
                     //    AnyBasisFirstClass / BasisTimestampsSecondClass
                     //    AnyBasisSecondClass
-                    for (int o = 0; o < sh.FirstEntityCount; o++)
-                    {
-                        BasisTimestampsFirstClass[pid][sh.FirstEntities[o]] = sh.Timestamp;
-                        AnyBasisFirstClass[pid][sh.FirstEntities[o]] = true;
-                    }
 
-                    for (int o = 0; o < sh.SecondEntityCount; o++)
+                    if (received)
                     {
-                        BasisTimestampsSecondClass[pid][sh.SecondEntities[o]] = sh.Timestamp;
-                        AnyBasisSecondClass[pid][sh.SecondEntities[o]] = true;
-                    }
+                        for (int o = 0; o < sh.FirstEntityCount; o++)
+                        {
+                            BasisTimestampsFirstClass[pid][sh.FirstEntities[o]] = sh.Timestamp;
+                            AnyBasisFirstClass[pid][sh.FirstEntities[o]] = true;
+                        }
 
-                    for (int o = 0; o < sh.FirstResendsCount; o++)
-                    {
-                        BasisTimestampsFirstClass[pid][sh.FirstResends[o]] = sh.FirstResendsTimestamp[o];
-                        AnyBasisFirstClass[pid][sh.FirstResends[o]] = true;
-                    }
+                        for (int o = 0; o < sh.SecondEntityCount; o++)
+                        {
+                            BasisTimestampsSecondClass[pid][sh.SecondEntities[o]] = sh.Timestamp;
+                            AnyBasisSecondClass[pid][sh.SecondEntities[o]] = true;
+                        }
 
-                    for (int o = 0; o < sh.SecondResendsCount; o++)
-                    {
-                        BasisTimestampsSecondClass[pid][sh.SecondResends[o]] = sh.SecondResendsTimestamp[o];
-                        AnyBasisSecondClass[pid][sh.SecondResends[o]] = true;
+                        for (int o = 0; o < sh.FirstResendsCount; o++)
+                        {
+                            BasisTimestampsFirstClass[pid][sh.FirstResends[o]] = sh.FirstResendsTimestamp[o];
+                            AnyBasisFirstClass[pid][sh.FirstResends[o]] = true;
+                        }
+
+                        for (int o = 0; o < sh.SecondResendsCount; o++)
+                        {
+                            BasisTimestampsSecondClass[pid][sh.SecondResends[o]] = sh.SecondResendsTimestamp[o];
+                            AnyBasisSecondClass[pid][sh.SecondResends[o]] = true;
+                        }
                     }
 
                     // 3. now release this handshake
@@ -1634,7 +1675,12 @@ namespace RelaNet.Snapshots
             ushort basisT = BasisTimestampsFirstClass[pid][eid];
 
             ISnapper snapper = Snappers[etype];
-            byte nlen = snapper.PrepDeltaFirst(eid, CurrentTime, basisT);
+            if (!snapper.PrepDeltaFirst(eid, CurrentTime, basisT, out byte nlen))
+            {
+                // if we failed to prep the delta, must send a full
+                ServerSendGhostFirst(pid, eid, etype);
+                return;
+            }
             int slen = 2 + 1 + 2 + 1 + nlen;
             Sent send = GetPlayerSent(pid, slen);
 
@@ -1661,11 +1707,16 @@ namespace RelaNet.Snapshots
             ushort basisT = BasisTimestampsSecondClass[pid][eid];
 
             ISnapper snapper = Snappers[etype];
-            byte nlen = snapper.PrepDeltaSecond(eid, CurrentTime, basisT);
+            if (!snapper.PrepDeltaSecond(eid, CurrentTime, basisT, out byte nlen))
+            {
+                // if we failed to prep the delta, must send a full
+                ServerSendGhostSecond(pid, eid, etype);
+                return;
+            }
             int slen = 2 + 2 + 2 + 1 + nlen;
             Sent send = GetPlayerSent(pid, slen);
 
-            send.WriteUShort(EventGhostSecondClass);
+            send.WriteUShort(EventDeltaSecondClass);
             send.WriteUShort(eid);
             send.WriteUShort(basisT);
             send.WriteByte(nlen);
@@ -1767,16 +1818,7 @@ namespace RelaNet.Snapshots
         public bool ServerRequestEntitySecond(byte etype, out ushort eid)
         {
             eid = NextEntityIdSecondClass;
-            if (eid >= EntityIdToSnapperIdSecondClass.Length)
-            {
-                // expand
-                int nlen = EntityIdToSnapperIdSecondClass.Length * 2;
-                while (nlen <= eid) nlen *= 2;
-                short[] na = new short[nlen];
-                for (int i = 0; i < EntityIdToSnapperIdSecondClass.Length; i++)
-                    na[i] = EntityIdToSnapperIdSecondClass[i];
-                EntityIdToSnapperIdSecondClass = na;
-            }
+            ResizeSecondClass(eid);
 
             if (eid == ushort.MaxValue && EntityIdToSnapperIdSecondClass[eid] != -1)
                 return false;
@@ -1786,21 +1828,15 @@ namespace RelaNet.Snapshots
             if (eid != ushort.MaxValue)
             {
                 NextEntityIdSecondClass++;
+                // expand entity array if needed
+                ResizeSecondClass(NextEntityIdSecondClass);
+
                 while (eid != ushort.MaxValue && EntityIdToSnapperIdSecondClass[NextEntityIdSecondClass] != -1)
                 {
                     NextEntityIdSecondClass++;
 
                     // expand entity array if needed
-                    if (NextEntityIdSecondClass >= EntityIdToSnapperIdSecondClass.Length)
-                    {
-                        // expand
-                        int nlen = EntityIdToSnapperIdSecondClass.Length * 2;
-                        while (nlen <= NextEntityIdSecondClass) nlen *= 2;
-                        short[] na = new short[nlen];
-                        for (int i = 0; i < EntityIdToSnapperIdSecondClass.Length; i++)
-                            na[i] = EntityIdToSnapperIdSecondClass[i];
-                        EntityIdToSnapperIdSecondClass = na;
-                    }
+                    ResizeSecondClass(NextEntityIdSecondClass);
                 }
             }
             return true;
@@ -1929,6 +1965,50 @@ namespace RelaNet.Snapshots
             return new ReArrayIdPool<SnapHandshake>(4, 1000,
                 () => { return new SnapHandshake(); },
                 (s) => { s.Clear(); });
+        }
+
+        private void ResizeSecondClass(int target)
+        {
+            if (target >= EntityIdToSnapperIdSecondClass.Length)
+            {
+                // expand
+                int nlen = EntityIdToSnapperIdSecondClass.Length * 2;
+                while (nlen <= target) nlen *= 2;
+                short[] na = new short[nlen];
+                for (int i = 0; i < EntityIdToSnapperIdSecondClass.Length; i++)
+                    na[i] = EntityIdToSnapperIdSecondClass[i];
+                for (int i = EntityIdToSnapperIdSecondClass.Length; i < na.Length; i++)
+                    na[i] = -1;
+                EntityIdToSnapperIdSecondClass = na;
+            }
+
+            for (int p = 0; p < BasisTimestampsSecondClass.Length; p++)
+            {
+                if (target >= BasisTimestampsSecondClass[p].Length)
+                {
+                    // expand
+                    int nlen = BasisTimestampsSecondClass[p].Length * 2;
+                    while (nlen <= target) nlen *= 2;
+                    ushort[] na = new ushort[nlen];
+                    for (int i = 0; i < BasisTimestampsSecondClass[p].Length; i++)
+                        na[i] = BasisTimestampsSecondClass[p][i];
+                    BasisTimestampsSecondClass[p] = na;
+                }
+            }
+
+            for (int p = 0; p < AnyBasisSecondClass.Length; p++)
+            {
+                if (target >= AnyBasisSecondClass[p].Length)
+                {
+                    // expand
+                    int nlen = AnyBasisSecondClass[p].Length * 2;
+                    while (nlen <= target) nlen *= 2;
+                    bool[] na = new bool[nlen];
+                    for (int i = 0; i < AnyBasisSecondClass[p].Length; i++)
+                        na[i] = AnyBasisSecondClass[p][i];
+                    AnyBasisSecondClass[p] = na;
+                }
+            }
         }
         #endregion Utility Methods
     }

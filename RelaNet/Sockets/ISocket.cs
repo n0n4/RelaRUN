@@ -11,9 +11,10 @@ namespace RelaNet.Sockets
         void Send(byte[] msg, int len, IPEndPoint target);
         void Receive(byte[] msg, int len, IPEndPoint from); // for virtual socket, direct receive
 
-        bool CanRead(int skips);
-        Receipt Read(int skips); // skips -> number of packets to skip
-        void EndRead(int skips);
+        void StartRead();
+        bool CanRead();
+        Receipt Read();
+        void EndRead();
 
         void Tick(float elapsedms);
 

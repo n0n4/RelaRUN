@@ -12,7 +12,7 @@ namespace RelaNet.Messages
         public byte[] Data;
         public int Length;
         public IPEndPoint EndPoint;
-        private int PoolId;
+        public int PoolId { get; private set; }
         private ReArrayIdPool<Receipt> Pool;
 
         // Header information
@@ -22,6 +22,7 @@ namespace RelaNet.Messages
         public bool IsImmediate;
 
         public bool Processed;
+        public bool CanBeReleased;
 
         public Receipt(ReArrayIdPool<Receipt> pool)
         {
@@ -37,6 +38,7 @@ namespace RelaNet.Messages
             IsImmediate = false;
 
             Processed = false;
+            CanBeReleased = false;
         }
 
         public void Clear()
@@ -47,6 +49,7 @@ namespace RelaNet.Messages
             MessageId = 0;
             IsImmediate = false;
             Processed = false;
+            CanBeReleased = false;
         }
 
         public int GetPoolIndex()

@@ -20,24 +20,22 @@ namespace RelaNet.Messages
         public byte[] TargetPids;
         public int AwaitingLength; // how many targets have we added
         public float[] TargetWaits; // how long have we waited
+        public byte[][] TargetAcks;
 
-        public ushort MessageId;
+        public ushort[] TargetMessageId;
         public bool HasMessageId;
         public int PoolIndex;
         public bool IsImmediate;
         public bool IsOrdered;
 
-        public byte[][] Acks;
-        public byte[] AckPids;
-        public int AckCount;
 
         public ushort[] FastOrderValues; // per player, order index at time sent was made
         public BitArray FastOrderSets; // per player, whether fast order value has been set
         public bool IsFastOrdered;
 
-        public bool Finalized;
+        public bool Finalized; // has it been sent to at least one target?
 
-        public Action<byte, ushort> HandshakeCallback;
+        public Action<byte, ushort, bool> HandshakeCallback;
 
         public const int AckPosition = 5; // the index of the handshake within a sent's buffer
         public const int MidPosition = 2; // the index of the message id within a sent's buffer
@@ -58,21 +56,19 @@ namespace RelaNet.Messages
             Retries = 0;
             RetryTimer = 0;
             RetryTimerMax = 0;
-            TargetPids = new byte[8];
+            TargetPids = new byte[2];
             AwaitingLength = 0;
-            TargetWaits = new float[8];
+            TargetWaits = new float[2];
 
-            MessageId = 0;
+            TargetMessageId = new ushort[2];
             HasMessageId = false;
             PoolIndex = -1;
             IsImmediate = false;
             IsOrdered = false;
 
-            Acks = new byte[8][];
-            for (int i = 0; i < Acks.Length; i++)
-                Acks[i] = new byte[12];
-            AckPids = new byte[8];
-            AckCount = 0;
+            TargetAcks = new byte[8][];
+            for (int i = 0; i < TargetAcks.Length; i++)
+                TargetAcks[i] = new byte[12];
 
             FastOrderValues = new ushort[8];
             FastOrderSets = new BitArray(256);
@@ -83,11 +79,8 @@ namespace RelaNet.Messages
             Finalized = false;
         }
 
-        public void AddTarget(byte pid)
+        public int AddTarget(byte pid, ushort mid)
         {
-            if (Finalized)
-                throw new Exception("Tried to add new player to finalized sent.");
-
             if (TargetPids.Length <= AwaitingLength)
             {
                 // expand the targetPids array
@@ -104,15 +97,38 @@ namespace RelaNet.Messages
                     ntw[i] = TargetWaits[i];
                 TargetWaits = ntw;
             }
+            if (TargetMessageId.Length <= AwaitingLength)
+            {
+                ushort[] nmid = new ushort[TargetMessageId.Length * 2];
+                for (int i = 0; i < TargetMessageId.Length; i++)
+                    nmid[i] = TargetMessageId[i];
+                TargetMessageId = nmid;
+            }
+            if (TargetAcks.Length <= AwaitingLength)
+            {
+                // we need to expand the arrays
+                byte[][] nacks = new byte[TargetAcks.Length * 2][];
+                for (int i = 0; i < TargetAcks.Length; i++)
+                {
+                    nacks[i] = TargetAcks[i];
+                }
+                for (int i = TargetAcks.Length; i < nacks.Length; i++)
+                    nacks[i] = new byte[12];
+
+                TargetAcks = nacks;
+            }
             TargetPids[AwaitingLength] = pid;
             TargetWaits[AwaitingLength] = 0;
+            TargetMessageId[AwaitingLength] = mid;
+            int index = AwaitingLength;
             AwaitingLength++;
+            return index;
         }
 
         public void RemoveTargetIndex(int index, bool skiphandshake)
         {
-             if (!skiphandshake && HandshakeCallback != null)
-                HandshakeCallback(TargetPids[index], MessageId);
+             if (HandshakeCallback != null)
+                HandshakeCallback(TargetPids[index], TargetMessageId[index], !skiphandshake);
 
             if (AwaitingLength <= 1)
             {
@@ -124,50 +140,45 @@ namespace RelaNet.Messages
             TargetPids[index] = TargetPids[AwaitingLength];
         }
 
-        // returns index of the ack within Acks
-        // so then you would do sent.Acks[returnedIndex][0] = ...
-        public int AddAck(byte pid)
+        public int GetTargetIndex(byte pid)
         {
-            int index = AckCount;
-            if(Acks.Length <= index)
+            int ackIndex = -1;
+            for (int i = 0; i < TargetPids.Length; i++)
             {
-                // we need to expand the arrays
-                byte[][] nacks = new byte[Acks.Length * 2][];
-                byte[] nackpids = new byte[Acks.Length * 2];
-                for (int i = 0; i < Acks.Length; i++)
+                if (TargetPids[i] == pid)
                 {
-                    nacks[i] = Acks[i];
-                    nackpids[i] = AckPids[i];
+                    ackIndex = i;
+                    break;
                 }
-                for (int i = Acks.Length; i < nacks.Length; i++)
-                    nacks[i] = new byte[12];
-
-                Acks = nacks;
-                AckPids = nackpids;
             }
-
-            AckPids[index] = pid;
-            AckCount++;
-            return index;
+            return ackIndex;
         }
 
-        public void LoadAck(byte pid)
+        public void LoadAckFromPid(byte pid)
         {
             // load the given ack out of our Acks list and put it
             // into Data at the appropriate offset
             int ackIndex = -1;
-            for (int i = 0; i < AckPids.Length; i++)
+            for (int i = 0; i < TargetPids.Length; i++)
             {
-                if (AckPids[i] == pid)
+                if (TargetPids[i] == pid)
                 {
                     ackIndex = i;
                     break;
                 }
             }
 
-            if (ackIndex != -1)
+            LoadAckFromIndex(ackIndex);
+        }
+
+        public void LoadAckFromIndex(int targetIndex)
+        { 
+            if (targetIndex != -1)
             {
-                byte[] nack = Acks[ackIndex];
+                // load the message id as well
+                Bytes.WriteUShort(Data, TargetMessageId[targetIndex], MidPosition);
+
+                byte[] nack = TargetAcks[targetIndex];
                 Buffer.BlockCopy(nack, 0, Data, AckPosition, 12);
             }
             else
@@ -199,7 +210,6 @@ namespace RelaNet.Messages
             HasMessageId = false;
             AwaitingLength = 0;
             Retries = 0;
-            AckCount = 0;
             IsImmediate = false;
             IsOrdered = false;
             Finalized = false;

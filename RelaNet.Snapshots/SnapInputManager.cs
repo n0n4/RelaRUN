@@ -95,9 +95,9 @@ namespace RelaNet.Snapshots
                 // must resize
                 ServerInputs[pid] = ResizeStructs(ServerInputs[pid], ServerInputs[pid].Length * 2,
                     ServerInputStart[pid], ServerInputCount[pid]);
-                ServerInputTimestamps[pid] = ResizeStructs(ServerInputTimestamps[pid], ServerInputs[pid].Length * 2,
+                ServerInputTimestamps[pid] = ResizeStructs(ServerInputTimestamps[pid], ServerInputTimestamps[pid].Length * 2,
                     ServerInputStart[pid], ServerInputCount[pid]);
-                ServerInputTickMS[pid] = ResizeStructs(ServerInputTickMS[pid], ServerInputs[pid].Length * 2,
+                ServerInputTickMS[pid] = ResizeStructs(ServerInputTickMS[pid], ServerInputTickMS[pid].Length * 2,
                     ServerInputStart[pid], ServerInputCount[pid]);
                 ServerInputStart[pid] = 0;
             }
@@ -178,9 +178,14 @@ namespace RelaNet.Snapshots
                 }
                 else
                 {
-                    placeIndex = ServerInputStart[pid] - 1;
+                    ServerInputStart[pid]--;
+                    placeIndex = ServerInputStart[pid];
+                    // need to move the start back
                     if (placeIndex < 0)
+                    {
                         placeIndex += ServerInputs.Length;
+                        ServerInputStart[pid] += ServerInputs.Length;
+                    }
                 }
             }
 
@@ -201,15 +206,19 @@ namespace RelaNet.Snapshots
                 // must resize
                 ClientInputs = ResizeStructs(ClientInputs, ClientInputs.Length * 2, 
                     ClientInputStart, ClientInputCount);
+                ClientInputTimestamps = ResizeStructs(ClientInputTimestamps, ClientInputTimestamps.Length * 2,
+                    ClientInputStart, ClientInputCount);
+                ClientInputTickMS = ResizeStructs(ClientInputTickMS, ClientInputTickMS.Length * 2,
+                    ClientInputStart, ClientInputCount);
                 ClientInputStart = 0;
             }
 
             int index = ClientInputStart + ClientInputCount;
-            if (index > ClientInputs.Length)
+            if (index >= ClientInputs.Length)
                 index -= ClientInputs.Length;
             ClientInputs[index] = t;
             ClientInputTimestamps[index] = Snapper.ClientTime;
-            ClientInputTickMS[index] = Snapper.ClientTickMS + Snapper.ClientTickMSInputOffset;
+            ClientInputTickMS[index] = Snapper.ClientTickMS + Snapper.ClientInputTickMSInputOffset;
             ClientInputCount++;
 
             int slen = WriteFixedLength;
@@ -268,17 +277,27 @@ namespace RelaNet.Snapshots
             int max = ClientInputStart + ClientInputCount;
             for (int i = ClientInputStart; i < max; i++)
             {
-                if (i > ushort.MaxValue)
-                    i -= ushort.MaxValue;
+                if (i >= ClientInputTimestamps.Length)
+                    i -= ClientInputTimestamps.Length;
 
-                if (ClientInputTimestamps[i] != timestamp)
-                    break;
+                ushort ts = ClientInputTimestamps[i];
+                // only preserve inputs which are within 500 of the current time
+                // therefore, only break when we hit one of these inputs
+                if (timestamp > ushort.MaxValue - 500
+                    && (ts > timestamp
+                    || ts < 500))
+                    break; // in the future region
+
+                if (timestamp < ushort.MaxValue - 500
+                    && ts > timestamp && ts < timestamp + 500)
+                    break; // in the future region
 
                 // if the timestamp matches what we're releasing,
                 // move forward in our circle buffer
                 ClientInputStart++;
-                if (ClientInputStart > ushort.MaxValue)
-                    ClientInputStart -= ushort.MaxValue;
+                if (ClientInputStart >= ClientInputTimestamps.Length)
+                    ClientInputStart -= ClientInputTimestamps.Length;
+
                 ClientInputCount--;
             }
         }
@@ -291,17 +310,26 @@ namespace RelaNet.Snapshots
                 int max = ServerInputStart[p] + ServerInputCount[p];
                 for (int i = ServerInputStart[p]; i < max; i++)
                 {
-                    if (i > ushort.MaxValue)
-                        i -= ushort.MaxValue;
+                    if (i >= ServerInputTimestamps[p].Length)
+                        i -= ServerInputTimestamps[p].Length;
 
-                    if (ServerInputTimestamps[p][i] != timestamp)
-                        break;
+                    ushort ts = ServerInputTimestamps[p][i];
+                    // only preserve inputs which are within 500 of the current time
+                    // therefore, only break when we hit one of these inputs
+                    if (timestamp > ushort.MaxValue - 500
+                        && (ts > timestamp
+                        || ts < 500))
+                        break; // in the future region
+
+                    if (timestamp < ushort.MaxValue - 500
+                        && ts > timestamp && ts < timestamp + 500)
+                        break; // in the future region
 
                     // if the timestamp matches what we're releasing,
                     // move forward in our circle buffer
                     ServerInputStart[p]++;
-                    if (ServerInputStart[p] > ushort.MaxValue)
-                        ServerInputStart[p] -= ushort.MaxValue;
+                    if (ServerInputStart[p] >= ServerInputTimestamps[p].Length)
+                        ServerInputStart[p] -= ServerInputTimestamps[p].Length;
                     ServerInputCount[p]--;
                 }
             }
