@@ -25,7 +25,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RelaNet.DynamicDatas.UT", "
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RelaNet.Snapshots.UT", "RelaNet.Snapshots.UT\RelaNet.Snapshots.UT.csproj", "{1EE9E13D-61BB-49F1-889C-05FC65E7DD8C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RelanNet.Snapshots.PerfTest", "RelanNet.Snapshots.PerfTest\RelanNet.Snapshots.PerfTest.csproj", "{967519EC-CFB0-4D8F-B278-8FFCD1DD31A4}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RelaNet.Snapshots.PerfTest", "RelanNet.Snapshots.PerfTest\RelaNet.Snapshots.PerfTest.csproj", "{967519EC-CFB0-4D8F-B278-8FFCD1DD31A4}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

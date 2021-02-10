@@ -886,9 +886,8 @@ namespace RelaNet.Snapshots
 
 
         // Simulant Helpers
-        public void ServerSaveSimPrevIntoCurrent(SnapHistory<T> ent)
+        public void ServerSaveSimIntoCurrent(SnapHistory<T> ent)
         {  
-            ent.Shots[ent.CurrentIndex] = ent.Prev;
             ent.Flags[ent.CurrentIndex] = SnapHistory<T>.FlagGold;
 
             if (ent.First)
@@ -901,9 +900,8 @@ namespace RelaNet.Snapshots
             }
         }
 
-        public void ClientSaveSimPrevIntoCurrent(SnapHistory<T> ent)
+        public void ClientSaveSimIntoCurrent(SnapHistory<T> ent)
         {
-            ent.Shots[ent.CurrentIndex] = ent.Prev;
             ent.Flags[ent.CurrentIndex] = SnapHistory<T>.FlagSilver;
         }
 

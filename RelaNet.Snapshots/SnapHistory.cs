@@ -22,21 +22,18 @@ namespace RelaNet.Snapshots
         public const byte FlagSilver = 2; // extrapolated, we made it up, it's fiction
         public const byte FlagDeghosted = 3;
 
-        public T Prev;
         public ushort PrevTimestamp;
         public byte PrevFlag;
         public int PrevIndex;
-
-        public T Current;
+        
         public ushort CurrentTimestamp;
         public byte CurrentFlag;
         public int CurrentIndex;
-
-        public T Next;
+        
         public ushort NextTimestamp;
         public byte NextFlag;
         public int NextIndex;
-
+        
         public SnapHistory(int length, bool first)
         {
             Shots = new T[length];
@@ -115,7 +112,6 @@ namespace RelaNet.Snapshots
             CurrentTimestamp = Timestamps[index];
             CurrentIndex = index;
             CurrentFlag = Flags[index];
-            Current = Shots[index];
 
 
             // load next
@@ -140,7 +136,6 @@ namespace RelaNet.Snapshots
             else
             {
                 NextFlag = Flags[NextIndex];
-                Next = Shots[NextIndex];
             }
 
 
@@ -166,7 +161,6 @@ namespace RelaNet.Snapshots
             else
             {
                 PrevFlag = Flags[PrevIndex];
-                Prev = Shots[PrevIndex];
             }
         }
     }
