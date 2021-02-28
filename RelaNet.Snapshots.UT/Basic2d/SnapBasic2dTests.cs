@@ -26,6 +26,11 @@ namespace RelaNet.Snapshots.UT.Basic2d
                     X = 10f + i,
                     Y = 5f + i,
                     XVel = 3f
+                },
+                new NentStaticBasic2d()
+                {
+                    Id1 = 0,
+                    Id2 = 0
                 }, out byte eid);
 
                 eids.Add(eid);
@@ -100,6 +105,11 @@ namespace RelaNet.Snapshots.UT.Basic2d
                     X = 10f + i,
                     Y = 5f + i,
                     XVel = 3f
+                },
+                new NentStaticBasic2d()
+                {
+                    Id1 = 0,
+                    Id2 = 0
                 }, out byte eid);
 
                 eids.Add(eid);
@@ -171,6 +181,11 @@ namespace RelaNet.Snapshots.UT.Basic2d
                     X = 10f + i,
                     Y = 5f + i,
                     XVel = 3f
+                },
+                new NentStaticBasic2d()
+                {
+                    Id1 = 0,
+                    Id2 = 0
                 }, out byte eid);
 
                 eids.Add(eid);
@@ -184,6 +199,11 @@ namespace RelaNet.Snapshots.UT.Basic2d
                     X = 10f + i,
                     Y = 5f + i,
                     XVel = 3f
+                },
+                new NentStaticBasic2d()
+                {
+                    Id1 = 0,
+                    Id2 = 0
                 }, out ushort eid);
 
                 secondeids.Add(eid);

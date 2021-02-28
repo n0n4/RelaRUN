@@ -33,6 +33,9 @@ namespace RelaNet.Snapshots
         public ushort CurrentTimestamp;
         public byte CurrentFlag;
         public int CurrentIndex;
+
+        // warning: not loaded by default
+        public T CurrentShot;
         
         public ushort NextTimestamp;
         public byte NextFlag;
@@ -118,7 +121,6 @@ namespace RelaNet.Snapshots
             CurrentTimestamp = Timestamps[index];
             CurrentIndex = index;
             CurrentFlag = Flags[index];
-
 
             // load next
             NextIndex = index + 1;

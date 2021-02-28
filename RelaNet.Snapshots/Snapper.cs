@@ -35,6 +35,9 @@ namespace RelaNet.Snapshots
         public ReArrayIdPool<SnapHistory<TSnap, TStatic>> FirstData;
         public ReArrayIdPool<SnapHistory<TSnap, TStatic>> SecondData;
 
+        public int FirstWindowLength;
+        public int SecondWindowLength;
+
         // Entity map
         public int[] FirstEntityIdToInnerId;
         public int[] SecondEntityIdToInnerId;
@@ -44,6 +47,11 @@ namespace RelaNet.Snapshots
         // Registration
         public NetExecutorSnapper NetSnapper { get; private set; }
         public byte EntityType { get; private set; } = 0;
+
+        private List<byte> FirstDestructQueue = new List<byte>(128);
+        private List<ushort> FirstDestructQueueTime = new List<ushort>(128);
+        private List<ushort> SecondDestructQueue = new List<ushort>(128);
+        private List<ushort> SecondDestructQueueTime = new List<ushort>(128);
 
         // Callbacks
         //            eid   h                            timestamp
@@ -59,6 +67,9 @@ namespace RelaNet.Snapshots
         public Snapper(int firstWindowLength = 64, int secondWindowLength = 32)
         {
             Packer = new TPacker();
+
+            FirstWindowLength = firstWindowLength;
+            SecondWindowLength = secondWindowLength;
 
             // setup entity data
             FirstData = new ReArrayIdPool<SnapHistory<TSnap, TStatic>>(4, byte.MaxValue + 1,
@@ -814,6 +825,57 @@ namespace RelaNet.Snapshots
                         sh.Flags[sh.LeadingIndex] = SnapHistory<TSnap, TStatic>.FlagDeghosted;
                 }
             }
+
+            // now check our destruct queues
+            if (FirstDestructQueue.Count > 0)
+            {
+                for (int i = FirstDestructQueue.Count - 1; i >= 0; i--)
+                {
+                    ushort destructTime = FirstDestructQueueTime[i];
+
+                    int dist = 0;
+                    if (currentTime < destructTime)
+                    {
+                        dist = (ushort.MaxValue - destructTime) + currentTime;
+                    }
+                    else
+                    {
+                        dist = currentTime - destructTime;
+                    }
+
+                    if (dist < FirstWindowLength)
+                        break;
+
+                    NetSnapper.ServerDestructFirst(FirstDestructQueue[i]);
+                    FirstDestructQueue.RemoveAt(i);
+                    FirstDestructQueueTime.RemoveAt(i);
+                }
+            }
+
+            if (SecondDestructQueue.Count > 0)
+            {
+                for (int i = SecondDestructQueue.Count - 1; i >= 0; i--)
+                {
+                    ushort destructTime = SecondDestructQueueTime[i];
+
+                    int dist = 0;
+                    if (currentTime < destructTime)
+                    {
+                        dist = (ushort.MaxValue - destructTime) + currentTime;
+                    }
+                    else
+                    {
+                        dist = currentTime - destructTime;
+                    }
+
+                    if (dist < FirstWindowLength)
+                        break;
+
+                    NetSnapper.ServerDestructSecond(SecondDestructQueue[i]);
+                    SecondDestructQueue.RemoveAt(i);
+                    SecondDestructQueueTime.RemoveAt(i);
+                }
+            }
         }
 
         /*private void AdvanceLogic(SnapHistory<T> sh)
@@ -959,7 +1021,7 @@ namespace RelaNet.Snapshots
 
         
         // Entity Management Methods
-        public bool ServerAddEntityFirst(TSnap initalSnap, out byte eid, bool ghostAll = true)
+        public bool ServerAddEntityFirst(TSnap initalSnap, TStatic staticData, out byte eid, bool ghostAll = true)
         {
             if (!NetSnapper.ServerRequestEntityFirst(EntityType, out eid))
             {
@@ -970,6 +1032,8 @@ namespace RelaNet.Snapshots
                 ExpandFirstEntityIdMap(eid);
 
             SnapHistory<TSnap, TStatic> h = FirstData.Request();
+            h.StaticData = staticData;
+
             h.EntityId = eid;
             h.Timestamps[0] = NetSnapper.CurrentTime;
             h.Flags[0] = SnapHistory<TSnap, TStatic>.FlagGold;
@@ -987,7 +1051,7 @@ namespace RelaNet.Snapshots
             return true;
         }
 
-        public bool ServerAddEntitySecond(TSnap initalSnap, out ushort eid, bool ghostAll = true)
+        public bool ServerAddEntitySecond(TSnap initalSnap, TStatic staticData, out ushort eid, bool ghostAll = true)
         {
             if (!NetSnapper.ServerRequestEntitySecond(EntityType, out eid))
             {
@@ -998,6 +1062,8 @@ namespace RelaNet.Snapshots
                 ExpandSecondEntityIdMap(eid);
 
             SnapHistory<TSnap, TStatic> h = SecondData.Request();
+            h.StaticData = staticData;
+
             h.EntityId = eid;
             h.Timestamps[0] = NetSnapper.CurrentTime;
             h.Flags[0] = SnapHistory<TSnap, TStatic>.FlagGold;
@@ -1030,5 +1096,24 @@ namespace RelaNet.Snapshots
                 return null;
             return SecondData.Values[SecondData.IdsToIndices[SecondEntityIdToInnerId[eid]]];
         }
+
+        // queue destruction of an entity. It will be deghosted first and then
+        // destroyed later once enough time has passed.
+        public void ServerQueueFirstDestruct(byte eid)
+        {
+            FirstDestructQueue.Add(eid);
+            FirstDestructQueueTime.Add(CurrentTime);
+
+            NetSnapper.ServerSendDeghostFirstAll(eid);
+        }
+
+        public void ServerQueueSecondDestruct(ushort eid)
+        {
+            SecondDestructQueue.Add(eid);
+            SecondDestructQueueTime.Add(CurrentTime);
+
+            NetSnapper.ServerSendDeghostSecondAll(eid);
+        }
+
     }
 }

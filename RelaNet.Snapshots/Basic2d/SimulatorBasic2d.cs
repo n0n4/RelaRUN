@@ -86,7 +86,7 @@ namespace RelaNet.Snapshots.Basic2d
                                 // if we have no inputs, skip advancement will be false
                                 // and we'll do regular simulation on this object (see below)
                                 h.Shots[h.CurrentIndex] = h.Shots[h.PrevIndex];
-                                skipAdvancement = InputChecker(h, (byte)h.EntityId);
+                                skipAdvancement = InputChecker(h, h.StaticData.Id1, NetSnapper.TickMSTarget, false);
                             }
                         }
 
@@ -110,7 +110,7 @@ namespace RelaNet.Snapshots.Basic2d
                                 // we don't have gold ahead of us, so we must 
                                 // simulate the current snapshot from previous
                                 h.Shots[h.CurrentIndex] = h.Shots[h.PrevIndex];
-                                AdvanceLogic(h, NetSnapper.TickMSTarget);
+                                AdvanceLogic(h, ref h.Shots[h.CurrentIndex], NetSnapper.TickMSTarget);
                             }
                             else
                             {
@@ -142,15 +142,32 @@ namespace RelaNet.Snapshots.Basic2d
                         continue; // if the prev flag is empty, this entity does 
                                   // not exist yet
 
-                    if (h.CurrentFlag == SnapHistory<NentBasic2d, NentStaticBasic2d>.FlagGold)
+                    h.CurrentShot = h.Shots[h.CurrentIndex];
+
+                    // if this is our player object, handle input instead...
+                    bool skipAdvancement = false;
+                    if (h.StaticData.Id2 == NENT_PLAYEROBJ)
                     {
-                        // we have a gold flag, so we can interpolate
-                        InterpolateLogic(h, tickms);
+                        if (h.StaticData.Id1 == Server.OurPlayerId)
+                        {
+                            // if we have no inputs, skip advancement will be false
+                            // and we'll do regular simulation on this object (see below)
+                            skipAdvancement = InputChecker(h, h.StaticData.Id1, tickms, true);
+                        }
                     }
-                    else
+
+                    if (!skipAdvancement)
                     {
-                        // otherwise we must simulate
-                        AdvanceLogic(h, tickms);
+                        if (h.CurrentFlag == SnapHistory<NentBasic2d, NentStaticBasic2d>.FlagGold)
+                        {
+                            // we have a gold flag, so we can interpolate
+                            InterpolateLogic(h, tickms);
+                        }
+                        else
+                        {
+                            // otherwise we must simulate
+                            AdvanceLogic(h, ref h.CurrentShot, tickms);
+                        }
                     }
                 }
             }
@@ -196,9 +213,9 @@ namespace RelaNet.Snapshots.Basic2d
 
                         // if we have no inputs, do regular advancement
                         h.Shots[h.CurrentIndex] = h.Shots[h.PrevIndex];
-                        if (!InputChecker(h, h.StaticData.Id1))
+                        if (!InputChecker(h, h.StaticData.Id1, NetSnapper.TickMSTarget, false))
                         {
-                            AdvanceLogic(h, NetSnapper.TickMSTarget);
+                            AdvanceLogic(h, ref h.Shots[h.CurrentIndex], NetSnapper.TickMSTarget);
                         }
                     }
                     else
@@ -206,7 +223,7 @@ namespace RelaNet.Snapshots.Basic2d
                         // if this were client, we'd check the flag of the next.
                         // as it is, just create the next from the current
                         h.Shots[h.CurrentIndex] = h.Shots[h.PrevIndex];
-                        AdvanceLogic(h, NetSnapper.TickMSTarget);
+                        AdvanceLogic(h, ref h.Shots[h.CurrentIndex], NetSnapper.TickMSTarget);
                     }
 
                     Nents.ServerSaveSimIntoCurrent(h);
@@ -216,12 +233,12 @@ namespace RelaNet.Snapshots.Basic2d
 
 
 
-        private void AdvanceLogic(SnapHistory<NentBasic2d, NentStaticBasic2d> h, float delta)
+        private void AdvanceLogic(SnapHistory<NentBasic2d, NentStaticBasic2d> h, ref NentBasic2d cur, float delta)
         {
             if (h.StaticData.Id2 == NENT_PLAYEROBJ)
             {
                 // some special considerations for the playerobject
-                if (h.Shots[h.CurrentIndex].Free1 > 0)
+                if (cur.Free1 > 0)
                 {
                     // if Free1 is over 0, we're in the middle of a dash
                     // this means we're moving quickly in the direction
@@ -229,14 +246,14 @@ namespace RelaNet.Snapshots.Basic2d
 
                     // we're expecting the client to provide rotation in
                     // radians, for the record
-                    h.Shots[h.CurrentIndex].XVel = DashSpeed * RMathF.Cos(h.Shots[h.CurrentIndex].Rot);
-                    h.Shots[h.CurrentIndex].YVel = DashSpeed * RMathF.Sin(h.Shots[h.CurrentIndex].Rot);
+                    cur.XVel = DashSpeed * RMathF.Cos(cur.Rot);
+                    cur.YVel = DashSpeed * RMathF.Sin(cur.Rot);
 
                     // reduce the dash timer 
-                    h.Shots[h.CurrentIndex].Free1 -= delta;
+                    cur.Free1 -= delta;
                     // if we cross 0, set up the cooldown timer
-                    if (h.Shots[h.CurrentIndex].Free1 <= 0)
-                        h.Shots[h.CurrentIndex].Free1 = -DashCooldownMax;
+                    if (cur.Free1 <= 0)
+                        cur.Free1 = -DashCooldownMax;
                     
                     // note: something we're not really handling here
                     // is that on the tick that the dash ends, we may 
@@ -249,19 +266,19 @@ namespace RelaNet.Snapshots.Basic2d
                     // matters in your use case. but for this demo
                     // I think it's outside the scope
                 }
-                else if (h.Shots[h.CurrentIndex].Free1 < 0)
+                else if (cur.Free1 < 0)
                 {
                     // if we're negative, we're on cooldown
                     // count back up to 0, when we get to 0
                     // the dash is available again.
-                    h.Shots[h.CurrentIndex].Free1 += delta;
-                    if (h.Shots[h.CurrentIndex].Free1 >= 0)
-                        h.Shots[h.CurrentIndex].Free1 = 0;
+                    cur.Free1 += delta;
+                    if (cur.Free1 >= 0)
+                        cur.Free1 = 0;
                 }
             }
 
-            h.Shots[h.CurrentIndex].X += h.Shots[h.CurrentIndex].XVel * delta;
-            h.Shots[h.CurrentIndex].Y += h.Shots[h.CurrentIndex].YVel * delta;
+            cur.X += cur.XVel * delta;
+            cur.Y += cur.YVel * delta;
         }
 
         private void InterpolateSnapLogic(SnapHistory<NentBasic2d, NentStaticBasic2d> h)
@@ -297,22 +314,23 @@ namespace RelaNet.Snapshots.Basic2d
             // we don't adjust IDs at all
 
             // pos/vel is simple, just blend
-            h.Shots[h.CurrentIndex].X = (h.Shots[h.CurrentIndex].X * invtickpercent) + (h.Shots[h.NextIndex].X * tickpercent);
-            h.Shots[h.CurrentIndex].Y = (h.Shots[h.CurrentIndex].Y * invtickpercent) + (h.Shots[h.NextIndex].Y * tickpercent);
-            h.Shots[h.CurrentIndex].XVel = (h.Shots[h.CurrentIndex].XVel * invtickpercent) + (h.Shots[h.NextIndex].XVel * tickpercent);
-            h.Shots[h.CurrentIndex].YVel = (h.Shots[h.CurrentIndex].YVel * invtickpercent) + (h.Shots[h.NextIndex].YVel * tickpercent);
+            h.CurrentShot.X = (h.CurrentShot.X * invtickpercent) + (h.Shots[h.NextIndex].X * tickpercent);
+            h.CurrentShot.Y = (h.CurrentShot.Y * invtickpercent) + (h.Shots[h.NextIndex].Y * tickpercent);
+            h.CurrentShot.XVel = (h.CurrentShot.XVel * invtickpercent) + (h.Shots[h.NextIndex].XVel * tickpercent);
+            h.CurrentShot.YVel = (h.CurrentShot.YVel * invtickpercent) + (h.Shots[h.NextIndex].YVel * tickpercent);
 
             // it makes sense to blend Free1 as well since we just
             // use it as a timer, but in other cases this might not 
             // be appropriate
-            h.Shots[h.CurrentIndex].Free1 = (h.Shots[h.CurrentIndex].Free1 * invtickpercent) + (h.Shots[h.NextIndex].Free1 * tickpercent);
+            h.CurrentShot.Free1 = (h.CurrentShot.Free1 * invtickpercent) + (h.Shots[h.NextIndex].Free1 * tickpercent);
 
             // rotation is more complicated to blend
-            h.Shots[h.CurrentIndex].Rot = RMathF.AngleBlend(h.Shots[h.CurrentIndex].Rot, h.Shots[h.NextIndex].Rot, tickpercent);
+            h.CurrentShot.Rot = RMathF.AngleBlend(h.CurrentShot.Rot, h.Shots[h.NextIndex].Rot, tickpercent);
         }
 
         // returns false if we have no inputs
-        private bool InputChecker(SnapHistory<NentBasic2d, NentStaticBasic2d> h, byte pid)
+        private bool InputChecker(SnapHistory<NentBasic2d, NentStaticBasic2d> h, 
+            byte pid, float maxms, bool useCurrentShot)
         {
             InputBasic2d[] actions = Input.GetPlayerInputs(pid,
                     out int index, out int count,
@@ -335,11 +353,18 @@ namespace RelaNet.Snapshots.Basic2d
                 // if timestamps[index] is equal to our timestamp, process it
                 if (timestamps[index] == simstamp)
                 {
+                    // if we are past the maxms we should process to, then stop
+                    if (tickms[index] >= maxms)
+                    {
+                        break;
+                    }
+
                     // process it
                     if (hasLastAction)
                     {
-                        InputLogic(lastAction, h, pid, tickms[index] - lastms);
+                        InputLogic(lastAction, h, pid, tickms[index] - lastms, useCurrentShot);
                     }
+                    
                     hasLastAction = true;
                     lastms = tickms[index];
                     lastAction = actions[index];
@@ -373,13 +398,14 @@ namespace RelaNet.Snapshots.Basic2d
             {
                 // we use the tickrate here bbecause this action stretches until the end
                 // of the tick, since there are no subsequent actions in this tick
-                InputLogic(lastAction, h, pid, NetSnapper.TickMSTarget - lastms);
+                InputLogic(lastAction, h, pid, maxms - lastms, useCurrentShot);
             }
 
             return true;
         }
 
-        private void InputLogic(InputBasic2d action, SnapHistory<NentBasic2d, NentStaticBasic2d> h, byte pid, float delta)
+        private void InputLogic(InputBasic2d action, SnapHistory<NentBasic2d, NentStaticBasic2d> h,
+            byte pid, float delta, bool useCurrentShot)
         {
             // process the inputs for this action 
             h.Shots[h.CurrentIndex].XVel = RMathF.Clamp(action.Horizontal, -1f, 1f) * PlayerSpeed;
@@ -403,7 +429,12 @@ namespace RelaNet.Snapshots.Basic2d
             }
 
             // finally, do AdvanceLogic over the delta window
-            AdvanceLogic(h, delta);
+            // need to do currentshot if in client advance endstate and
+            // shots[currentindex] otherwise
+            if (useCurrentShot)
+                AdvanceLogic(h, ref h.CurrentShot, delta);
+            else
+                AdvanceLogic(h, ref h.Shots[h.CurrentIndex], delta);
         }
 
         

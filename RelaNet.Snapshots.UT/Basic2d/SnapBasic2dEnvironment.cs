@@ -59,14 +59,14 @@ namespace RelaNet.Snapshots.UT.Basic2d
                 NetSnappers[i].Deactivate();
         }
 
-        public bool AddEntityFirst(NentBasic2d initialSnap, out byte eid)
+        public bool AddEntityFirst(NentBasic2d initialSnap, NentStaticBasic2d staticData, out byte eid)
         {
-            return Nents[0].ServerAddEntityFirst(initialSnap, out eid);
+            return Nents[0].ServerAddEntityFirst(initialSnap, staticData, out eid);
         }
 
-        public bool AddEntitySecond(NentBasic2d initialSnap, out ushort eid)
+        public bool AddEntitySecond(NentBasic2d initialSnap, NentStaticBasic2d staticData, out ushort eid)
         {
-            return Nents[0].ServerAddEntitySecond(initialSnap, out eid);
+            return Nents[0].ServerAddEntitySecond(initialSnap, staticData, out eid);
         }
 
         public void Tick(float elapsedms)

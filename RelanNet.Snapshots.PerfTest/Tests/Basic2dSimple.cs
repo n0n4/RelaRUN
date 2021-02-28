@@ -147,6 +147,11 @@ namespace RelanNet.Snapshots.PerfTest.Tests
                     X = 10f + i,
                     Y = 5f + i,
                     XVel = 3f
+                },
+                new NentStaticBasic2d()
+                {
+                    Id1 = 0,
+                    Id2 = 0
                 }, out byte eid);
             }
 
@@ -156,6 +161,11 @@ namespace RelanNet.Snapshots.PerfTest.Tests
                 {
                     X = 10f + i,
                     Y = 5f + i
+                },
+                new NentStaticBasic2d()
+                {
+                    Id1 = 0,
+                    Id2 = 0
                 }, out byte eid);
             }
 
@@ -166,6 +176,11 @@ namespace RelanNet.Snapshots.PerfTest.Tests
                     X = 10f + i,
                     Y = 5f + i,
                     XVel = 3f
+                },
+                new NentStaticBasic2d()
+                {
+                    Id1 = 0,
+                    Id2 = 0
                 }, out ushort eid);
             }
 
@@ -175,6 +190,11 @@ namespace RelanNet.Snapshots.PerfTest.Tests
                 {
                     X = 10f + i,
                     Y = 5f + i
+                },
+                new NentStaticBasic2d()
+                {
+                    Id1 = 0,
+                    Id2 = 0
                 }, out ushort eid);
             }
 

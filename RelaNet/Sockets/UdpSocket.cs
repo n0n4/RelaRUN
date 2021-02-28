@@ -286,7 +286,7 @@ namespace RelaNet.Sockets
             // increment the index
             ReadingIndex++;
             // skip next if it is the receiving
-            if (Pool.Values[ReadingIndex].PoolId == WritingReceipt.PoolId)
+            if (ReadingIndex < Pool.Count && Pool.Values[ReadingIndex].PoolId == WritingReceipt.PoolId)
                 ReadingIndex++;
             return Pool.Values[index];
         }

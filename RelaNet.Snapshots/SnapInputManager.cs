@@ -274,13 +274,13 @@ namespace RelaNet.Snapshots
         // Release
         public void ClientReleaseInputs(ushort timestamp)
         {
-            int max = ClientInputStart + ClientInputCount;
-            for (int i = ClientInputStart; i < max; i++)
+            int index = ClientInputStart;
+            for (int i = 0; i < ClientInputCount; i++, index++)
             {
-                if (i >= ClientInputTimestamps.Length)
-                    i -= ClientInputTimestamps.Length;
+                if (index >= ClientInputTimestamps.Length)
+                    index -= ClientInputTimestamps.Length;
 
-                ushort ts = ClientInputTimestamps[i];
+                ushort ts = ClientInputTimestamps[index];
                 // only preserve inputs which are within 500 of the current time
                 // therefore, only break when we hit one of these inputs
                 if (timestamp > ushort.MaxValue - 500
