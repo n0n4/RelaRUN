@@ -41,7 +41,7 @@ namespace RelaNet.Snapshots.UT.Basic2d
                     netSnap.AddSnapper(nent);
                     Nents.Add(nent);
 
-                    SimulatorBasic2d sim = new SimulatorBasic2d(input, nent);
+                    SimulatorBasic2d sim = new SimulatorBasic2d(input, nent, new AdvancerConfigBasic2d());
                     netSnap.LoadSimulator(sim);
                     Sims.Add(sim);
                 });

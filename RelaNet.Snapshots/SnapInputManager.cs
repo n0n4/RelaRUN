@@ -38,6 +38,15 @@ namespace RelaNet.Snapshots
         public int ClientInputStart;
         public int ClientInputCount;
 
+        // Finalized: client inputs are written first without a timestamp
+        // then when they get finalized, a timestamp is assigned.
+        // this process is required because the client inputs may be written
+        // before the netsnapper has PreTicked for this frame, and they would
+        // therefore have an invalid (old) timestamp if we took the current one
+        // at that point in time.
+        public bool[] ClientInputRequiresFinalize;
+
+
         public T[][] ServerInputs;
         public ushort[][] ServerInputTimestamps;
         public float[][] ServerInputTickMS;
@@ -82,6 +91,7 @@ namespace RelaNet.Snapshots
                 ClientInputs = new T[32];
                 ClientInputTimestamps = new ushort[32];
                 ClientInputTickMS = new float[32];
+                ClientInputRequiresFinalize = new bool[32];
             }
         }
 
@@ -210,6 +220,8 @@ namespace RelaNet.Snapshots
                     ClientInputStart, ClientInputCount);
                 ClientInputTickMS = ResizeStructs(ClientInputTickMS, ClientInputTickMS.Length * 2,
                     ClientInputStart, ClientInputCount);
+                ClientInputRequiresFinalize = ResizeStructs(ClientInputRequiresFinalize, ClientInputRequiresFinalize.Length * 2,
+                    ClientInputStart, ClientInputCount);
                 ClientInputStart = 0;
             }
 
@@ -217,15 +229,56 @@ namespace RelaNet.Snapshots
             if (index >= ClientInputs.Length)
                 index -= ClientInputs.Length;
             ClientInputs[index] = t;
-            ClientInputTimestamps[index] = Snapper.ClientTime;
-            ClientInputTickMS[index] = Snapper.ClientTickMS + Snapper.ClientInputTickMSInputOffset;
-            ClientInputCount++;
+            
+            // mark it as RequiresFinalize
+            // we will finish writing this input once NetExecutorSnapper gets to PreTick
+            ClientInputRequiresFinalize[index] = true;
 
-            int slen = WriteFixedLength;
-            if (slen == -1)
-                slen = Packer.GetWriteLength(t);
-            Sent sent = Snapper.GetClientInputSent(InputIndex, slen);
-            Packer.Write(t, sent);
+            ClientInputCount++;
+        }
+
+        // should only be called by the NetExecutorSnapper
+        public void FinalizeInputs()
+        {
+            // loop over our client inputs backwards (end-first)
+            // when we hit one that is finalized, break, since all the further ones
+            // must be finalized already (remember: we always add new inputs to the end)
+
+            // sanity: if we don't have any inputs, don't bother finalizing...
+            if (ClientInputCount <= 0)
+                return;
+
+            int index = ClientInputStart + ClientInputCount - 1;
+            if (index >= ClientInputs.Length)
+                index -= ClientInputs.Length;
+            for (int i = 0; i < ClientInputs.Length; i++)
+            {
+                if (ClientInputRequiresFinalize[index] == false)
+                    break; // done
+
+                // if we got here: it must need to be finalized
+                // substitute in the proper times and write to the server
+
+                // note: although we send these inputs with ClientInputTime to the server,
+                // on our end we store them earlier (at ClientTime)
+                // this is because the client is rendering themselves slightly in the future
+                // compared to the server.
+                ClientInputTimestamps[index] = Snapper.ClientTime;
+                ClientInputTickMS[index] = Snapper.ClientTickMS + Snapper.ClientInputTickMSInputOffset;
+                ClientInputRequiresFinalize[index] = false;
+
+                // network it
+                int slen = WriteFixedLength;
+                if (slen == -1)
+                    slen = Packer.GetWriteLength(ClientInputs[index]);
+                Sent sent = Snapper.GetClientInputSent(InputIndex, slen);
+                Packer.Write(ClientInputs[index], sent);
+
+                // adjust index
+                index--;
+                if (index < 0)
+                    index += ClientInputs.Length;
+            }
         }
 
         public void PlayerAdded(byte pid)
@@ -275,7 +328,8 @@ namespace RelaNet.Snapshots
         public void ClientReleaseInputs(ushort timestamp)
         {
             int index = ClientInputStart;
-            for (int i = 0; i < ClientInputCount; i++, index++)
+            int max = ClientInputCount;
+            for (int i = 0; i < max; i++, index++)
             {
                 if (index >= ClientInputTimestamps.Length)
                     index -= ClientInputTimestamps.Length;
@@ -307,13 +361,14 @@ namespace RelaNet.Snapshots
             // check for each player
             for (int p = 0; p < ServerInputs.Length; p++)
             {
-                int max = ServerInputStart[p] + ServerInputCount[p];
-                for (int i = ServerInputStart[p]; i < max; i++)
+                int max = ServerInputCount[p];
+                int index = ServerInputStart[p];
+                for (int i = 0; i < max; i++, index++)
                 {
-                    if (i >= ServerInputTimestamps[p].Length)
-                        i -= ServerInputTimestamps[p].Length;
+                    if (index >= ServerInputTimestamps[p].Length)
+                        index -= ServerInputTimestamps[p].Length;
 
-                    ushort ts = ServerInputTimestamps[p][i];
+                    ushort ts = ServerInputTimestamps[p][index];
                     // only preserve inputs which are within 500 of the current time
                     // therefore, only break when we hit one of these inputs
                     if (timestamp > ushort.MaxValue - 500

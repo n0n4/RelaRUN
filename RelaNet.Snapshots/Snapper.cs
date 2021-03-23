@@ -6,11 +6,11 @@ using System.Text;
 
 namespace RelaNet.Snapshots
 {
-    public class Snapper<TSnap, TStatic, TPacker, TPackInfo> : ISnapper 
-        where TSnap : struct                                           // entity struct
-        where TStatic : struct                                         // static data struct
-        where TPacker : struct, ISnapPacker<TSnap, TStatic, TPackInfo> // packer struct 
-        where TPackInfo : struct                                       // packer info struct
+public class Snapper<TSnap, TStatic, TPacker, TPackInfo> : ISnapper 
+    where TSnap : struct                                           // entity struct
+    where TStatic : struct                                         // static data struct
+    where TPacker : struct, ISnapPacker<TSnap, TStatic, TPackInfo> // packer struct 
+    where TPackInfo : struct                                       // packer info struct
     {
         // Delegates
         /*public delegate void ClearDelegate(ref T obj);
@@ -64,7 +64,7 @@ namespace RelaNet.Snapshots
         private SnapHistory<TSnap, TStatic> TempWriteHistory;
         private int TempWriteIndex;
 
-        public Snapper(int firstWindowLength = 64, int secondWindowLength = 32)
+        public Snapper(int firstWindowLength = 64, int secondWindowLength = 64)
         {
             Packer = new TPacker();
 
@@ -172,6 +172,9 @@ namespace RelaNet.Snapshots
             TempWriteHistory = h;
             TempWriteIndex = h.FindIndex(timestamp);
 
+            if (TempWriteIndex < 0)
+                return 0;
+
             return Packer.PrepPackFull(
                 h.Shots[TempWriteIndex], h.StaticData, out PackInfo);
         }
@@ -191,6 +194,9 @@ namespace RelaNet.Snapshots
 
             TempWriteHistory = h;
             TempWriteIndex = h.FindIndex(timestamp);
+
+            if (TempWriteIndex < 0)
+                return 0;
 
             return Packer.PrepPackFull(
                 h.Shots[TempWriteIndex], h.StaticData, out PackInfo);
@@ -374,34 +380,8 @@ namespace RelaNet.Snapshots
             SnapHistory<TSnap, TStatic> sh = data.Request();
 
             sh.EntityId = entityid;
-            Packer.UnpackFull(ref sh.Shots[0], ref sh.StaticData, blob, blobstart, blobcount);
-            sh.Timestamps[0] = timestamp;
-            sh.Flags[0] = SnapHistory<TSnap, TStatic>.FlagGold;
             sh.LeadingIndex = 0;
-
-            // now, figure how close we are to current time
-            // under normal conditions, we should be receiving snapshots
-            // very close to the CurrentTime
-            int expIndex = sh.FindIndex(CurrentTime);
-
-            // however, if the expIndex is -1, it means the snapshot
-            // we just received is outside the current window
-            // (because CurrentTime relative to it is outside the window)
-            if (expIndex == -1)
-            {
-                // in this case, we need to just abandon the snapshot we
-                // received. This can obviously create issues since we'll
-                // need a full snapshot again.
-                sh.Timestamps[0] = CurrentTime;
-                sh.Flags[0] = SnapHistory<TSnap, TStatic>.FlagEmpty;
-            }
-            else
-            {
-                // in this case, we're within the window, so let's
-                // just set the leading index properly.
-                sh.LeadingIndex = expIndex;
-                sh.Timestamps[sh.LeadingIndex] = CurrentTime;
-            }
+            sh.Timestamps[0] = CurrentTime;
 
             // setup the rest of the future timestamps
             ushort itime = sh.Timestamps[0];
@@ -425,6 +405,27 @@ namespace RelaNet.Snapshots
                     itime--;
 
                 sh.Timestamps[sh.Shots.Length - 1 - i] = itime;
+            }
+
+            int expIndex = sh.FindIndex(timestamp);
+            if (expIndex == -1)
+            {
+                // in this case, we need to just abandon the snapshot we
+                // received. This can obviously create issues since we'll
+                // need a full snapshot again.
+
+                // however, we still unpack it in full, so the static data 
+                // can be constructed
+                Packer.UnpackFull(ref sh.Shots[0], ref sh.StaticData, blob, blobstart, blobcount);
+                sh.Flags[0] = SnapHistory<TSnap, TStatic>.FlagEmpty;
+            }
+            else
+            {
+                // if the snapshot we received has a space in the current window,
+                // so just unpack into there
+                Packer.UnpackFull(ref sh.Shots[expIndex], ref sh.StaticData, blob, blobstart, blobcount);
+                sh.Timestamps[expIndex] = timestamp;
+                sh.Flags[expIndex] = SnapHistory<TSnap, TStatic>.FlagGold;
             }
 
             // return the innerid
@@ -482,107 +483,11 @@ namespace RelaNet.Snapshots
             sh.Timestamps[index] = timestamp;
             sh.Flags[index] = SnapHistory<TSnap, TStatic>.FlagGold;
 
-            // handle flag rollover
-            Rollover(sh, index, timestamp);
+            // ask the server to resimulate from this timestamp
+            // to ensure our silver guesses get updated
+            NetSnapper.RequestResimulate(timestamp);
 
             return true;
-        }
-
-        private void Rollover(SnapHistory<TSnap, TStatic> sh, int index, ushort timestamp)
-        {
-            // this whole idea has to be reworked
-            // I guess an issue is that one of our key assumptions
-            // is that the indices will always be populated with timestamps
-            // so we need to have some kind of rollover
-            // but doing the extrap action here is not good
-            // 1. it's not real simulated
-            // 2. why not do interp when available?
-
-            // one option would be to do simple extrap/interp here
-            // or even just copy the same snapshot over and over
-            // and then, when we get an older timestamp, flag the simulator
-            // as "needs rollback calculation" (ONLY IF WE ACTUALLY HAVE ANY
-            // SILVER SNAPSHOTS AHEAD OF THIS TIMESTAMP)
-
-            // then, at the end of each processing, if the simulator has
-            // this flag set, it will run again from whatever the oldest time
-            // flagged was (need to track the timestamp of each flagging as well)
-            // this will generate new silver snapshots, and they'll be accurate to boot.
-
-            // RE: THIS DISCUSSION
-            // we decided to do the "resimulate flagging" approach
-            // so the way this works now is that if we receive a timestamp,
-            // and there's unknowns in front of it,
-            // the system gets asked to resimulate from that timestamp
-
-            int nindex = index + 1;
-            ushort nextTime = timestamp;
-            if (nindex == sh.Shots.Length)
-                nindex = 0;
-
-            if (nextTime == ushort.MaxValue)
-                nextTime = 0;
-            else
-                nextTime++;
-
-            // we can only rollover onto silver flags
-            if (sh.Flags[nindex] != SnapHistory<TSnap, TStatic>.FlagSilver && sh.Flags[nindex] != SnapHistory<TSnap, TStatic>.FlagEmpty)
-                return;
-
-            // can only rollover onto subsequent timestamps
-            if (sh.Timestamps[nindex] != nextTime)
-                return;
-
-            // if we get here, then we hit a silver or an empty that must be filled out
-            // tell the snap system to resimulate 
-            NetSnapper.RequestResimulate(timestamp);
-                
-
-            // VVVV OLD VVVV
-            /*
-            // flags need to act a certain way to allow us to have
-            // snapshots roll over when no changes are needed
-            // e.g.:
-            // 1 = from server (GOLD STANDARD)
-            // 2 = roll over, this occurs when no snapshot is received
-            //     we assume shot is unchanged and use it again for next
-            //     timestamp
-            // now imagine we have some snaps:
-            // aaaaabb
-            // 1222212
-            //   ^ and here we receive a new snapshot c
-            // we SCROLL FORWARD and replace all 2s with the new snapshot:
-            // aacccbb
-            // 1212212
-            // this way we can let client continue to scroll forward but 
-            // also correct itself properly
-            int nindex = index + 1;
-            ushort nextTime = timestamp;
-            int rolls = 1;
-            while (true)
-            {
-                if (nindex == sh.Shots.Length)
-                    nindex = 0;
-
-                if (nextTime == ushort.MaxValue)
-                    nextTime = 0;
-                else
-                    nextTime++;
-
-                // we can only rollover onto silver flags
-                if (sh.Flags[nindex] != SnapHistory<T>.FlagSilver && sh.Flags[nindex] != SnapHistory<T>.FlagEmpty)
-                    break;
-
-                // can only rollover onto subsequent timestamps
-                if (sh.Timestamps[nindex] != nextTime)
-                    break;
-
-                // now we're ready to roll
-                ExtrapolateAction(ref sh.Shots[nindex], sh.Shots[index], TickMS * rolls);
-                rolls++;
-
-                nindex++;
-            }*/
         }
 
 
@@ -639,8 +544,9 @@ namespace RelaNet.Snapshots
             sh.Timestamps[index] = timestamp;
             sh.Flags[index] = SnapHistory<TSnap, TStatic>.FlagGold;
 
-            // handle flag rollover
-            Rollover(sh, index, timestamp);
+            // ask the server to resimulate from this timestamp
+            // to ensure our silver guesses get updated
+            NetSnapper.RequestResimulate(timestamp);
 
             return true;
         }
@@ -1021,7 +927,8 @@ namespace RelaNet.Snapshots
 
         
         // Entity Management Methods
-        public bool ServerAddEntityFirst(TSnap initalSnap, TStatic staticData, out byte eid, bool ghostAll = true)
+        public bool ServerAddEntityFirst(TSnap initalSnap, TStatic staticData, out byte eid,
+            bool ghostAll = true)
         {
             if (!NetSnapper.ServerRequestEntityFirst(EntityType, out eid))
             {
@@ -1051,7 +958,8 @@ namespace RelaNet.Snapshots
             return true;
         }
 
-        public bool ServerAddEntitySecond(TSnap initalSnap, TStatic staticData, out ushort eid, bool ghostAll = true)
+        public bool ServerAddEntitySecond(TSnap initalSnap, TStatic staticData, out ushort eid,
+            bool ghostAll = true)
         {
             if (!NetSnapper.ServerRequestEntitySecond(EntityType, out eid))
             {

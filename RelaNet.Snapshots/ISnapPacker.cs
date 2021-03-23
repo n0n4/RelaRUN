@@ -6,8 +6,8 @@ using System.Text;
 namespace RelaNet.Snapshots
 {
     public interface ISnapPacker<TSnap, TStatic, TPackInfo> 
-        where TSnap : struct // entity struct
-        where TStatic : struct // static data struct
+        where TSnap : struct     // entity struct
+        where TStatic : struct   // static data struct
         where TPackInfo : struct // pack info struct
     {
         void Clear(ref TSnap obj);

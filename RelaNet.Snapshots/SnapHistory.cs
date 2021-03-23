@@ -33,13 +33,20 @@ namespace RelaNet.Snapshots
         public ushort CurrentTimestamp;
         public byte CurrentFlag;
         public int CurrentIndex;
-
-        // warning: not loaded by default
-        public T CurrentShot;
         
         public ushort NextTimestamp;
         public byte NextFlag;
         public int NextIndex;
+
+        // client prediction parameters
+        public bool PermanentImpulse;
+        public bool HasImpulse;
+        public T ImpulseShot;
+        public ushort ImpulseTimestamp;
+
+        public float BlendFactor = 0.05f;
+        public float ActiveBlendFactor = 0;
+        public ushort BlendTimestamp;
         
         public SnapHistory(int length, bool first)
         {
@@ -55,6 +62,9 @@ namespace RelaNet.Snapshots
                 Flags[i] = FlagEmpty;
 
             StaticData = new TStatic();
+
+            PermanentImpulse = false;
+            HasImpulse = false;
         }
 
         public int GetPoolIndex()

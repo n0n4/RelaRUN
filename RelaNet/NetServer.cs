@@ -1364,6 +1364,10 @@ namespace RelaNet
                     }
                 }
             }
+
+            // inform our executors
+            for (int i = 0; i < ExecutorCount; i++)
+                Executors[i].PlayerRemoved(pinfo);
         }
 
         private void RemovePlayerClient(byte playerid, string reason)
@@ -2335,6 +2339,7 @@ namespace RelaNet
                 {
                     // no received messages from this player yet
                     // we can only send an empty heartbeat
+                    
                     Sent esend = BeginNewSend(SpecialIsImmediate);
                     esend.WriteUShort(EventEmptyHeartbeat);
                     SendImmediate(esend, pinfo);

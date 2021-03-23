@@ -10,6 +10,7 @@ namespace RelaNet.Snapshots
         void Loaded(NetExecutorSnapper snapper, byte inputIndex);
 
         int ReadInput(Receipt receipt, int c, ushort timestamp, float tickms);
+        void FinalizeInputs();
 
         void PlayerAdded(byte pid);
 

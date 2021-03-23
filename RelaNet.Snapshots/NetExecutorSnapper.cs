@@ -118,9 +118,16 @@ namespace RelaNet.Snapshots
 
 
         private ISnapSimulator Simulator = null;
+
+        // resimulate: a client process when the client receives new info
+        // to redo its predictions
         private bool ResimulateRequested = false;
         private ushort ResimulateStartTimestamp = 0;
         public ushort SimulateTimestamp { get; private set; } = 0;
+
+        // basically: how far in the past can we resimulate from?
+        // this is how many timestamps of input we save, as a client
+        public ushort ResimulateMaxWindow = 32; 
 
 
 
@@ -146,7 +153,7 @@ namespace RelaNet.Snapshots
         // sequence number
         private byte SequenceNumber = 0;
         // TickMS is how many ms have elapsed since the last timestamp update
-        private float TickMS = 0;
+        public float TickMS { get; private set; } = 0;
         public float TickMSTarget { get; private set; } = 20;
 
 
@@ -164,6 +171,7 @@ namespace RelaNet.Snapshots
         public byte ClientSequenceNumber { get; private set; } = 0;
         public float ClientTickMS { get; private set; } = 0;
         public float ClientTickMSAdjustment = 100;
+        public int ClientConfAdjustment = 0;
 
 
         public ushort ClientInputTime { get; private set; } = 0;
@@ -172,6 +180,42 @@ namespace RelaNet.Snapshots
         // ushort version of the tick ms, for transmission with input commands
         private ushort ClientInputTickMSushort = 0;
         public float ClientInputTickMSInputOffset { get; private set; } = 0;
+
+
+        // impulse time: for client prediction, what timestamp do we begin extrapolation from?
+              // every frame, load this timestamp (via interpolation) 
+
+              // then, extrapolate from this timestamp to the present moment
+              // playing all of our inputs since then back
+
+              // while extrapolating, check if we can push the impulse time up yet or not
+              // we can push the time up once we have snapshots for all the impulse entities
+              // for the timestamp we asked our input to be processed on / subsequent timestamps
+              // so if we put the input in at 15, when the server sends 15 we can push up to 16
+              // and we repeat that
+              // ImpulseTime is ClientTime when we made the input
+              // so the snapshots we're looking for are at ClientInputTime when the input was made
+              // This distance is ClientTickMSAdjustment * 2
+
+              // here's the trick:
+              // while extrapolating, we check if we have received the snapshot for 
+              // [extrapTime + ClientTickMSAdjustment * 2] for this entity
+              // if we have, we use that (replace ImpulseShot with that)
+              // if we have these for each impulse entity, we can increase ImpulseTime by 1
+              // since no more prediction is needed for that frame
+
+              // for non-permanent impulse entities, implement blending as a means of restoring
+              // sync with the server.
+              // a fixed time after impulse is acquired (ClientTickMSAdjusment * 2, probably),
+              // begin blending. 
+              // during blending, combine the final predicted ImpulseShot with the server snapshot
+              // at ClientTime (e.g., in the past)
+              // increase the percentage of the blended shot that comes from the server snapshot
+              // by the blending factor each tick, until 100% of it does
+              // once this is complete, remove Impulse from the entity
+              // if it acquires a new impulse during this, cancel blending. 
+        private bool SetImpulseFirstTime = false;
+        public ushort ClientImpulseTime { get; private set; } = 0;
 
         // receiving values:
         // these values are stored each time we hit a packet header
@@ -504,11 +548,12 @@ namespace RelaNet.Snapshots
                 //      tms=0ms -> ctime=6 ctms=20ms
                 //      tms=10ms -> ctime=7 ctms=0ms
                 //      tms=20ms -> ctime=7 ctms=10ms
-                ushort clientStartTime = ClientTime;
+                //ushort clientStartTime = ClientTime;
 
                 float adj = ClientTickMSAdjustment - TickMS;
                 ushort ticks = (ushort)Math.Ceiling(adj / TickMSTarget);
-                float over = TickMSTarget - (adj - (ticks * TickMSTarget));
+                float over = (ticks * TickMSTarget) - adj;
+                    //TickMSTarget - (adj - (ticks * TickMSTarget));
 
                 ClientTime = CurrentTime;
                 if (ticks > ClientTime)
@@ -533,9 +578,16 @@ namespace RelaNet.Snapshots
 
                 ClientTickMS = over;
 
+                // if we haven't set our impulse for the first time, set it to ClientTime
+                if (!SetImpulseFirstTime)
+                {
+                    ClientImpulseTime = ClientTime;
+                    SetImpulseFirstTime = true;
+                }
+
                 float inadj = ClientTickMSAdjustment + TickMS;
-                ushort inticks = (ushort)Math.Ceiling(inadj / TickMSTarget);
-                float inover = TickMSTarget - (inadj - (inticks * TickMSTarget));
+                ushort inticks = (ushort)Math.Floor(inadj / TickMSTarget);
+                float inover = inadj - (inticks * TickMSTarget);
 
                 ClientInputTime = CurrentTime;
                 if (inticks > (ushort.MaxValue - ClientInputTime))
@@ -561,17 +613,26 @@ namespace RelaNet.Snapshots
                 ClientInputTickMSushort = (ushort)(ClientInputTickMS * 100.0f);
                 ClientInputTickMSInputOffset = 0;
 
-                // now render
-                if (!ResimulateRequested)
-                {
-                    LoadTimestamp(ClientTime);
-                    Simulator.ClientAdvance(ticks, over);
-                }
+                // now that we've sorted the correct clientTimes for this frame,
+                // we can go ahead and finalize our inputs for each of our input managers.
+                for (int i = 0; i < InputManagerCount; i++)
+                    InputManagers[i].FinalizeInputs();
+                
+                ushort simStart = ClientImpulseTime;
+                ticks = ClientTime;
+                if (ClientImpulseTime < ClientTime)
+                    ticks -= ClientImpulseTime;
                 else
+                    ticks += (ushort)((ushort.MaxValue - ClientImpulseTime) + 1);
+
+                // check if we need to resimulate
+                if (ResimulateRequested)
                 {
+                    ushort oldTicks = ticks;
+                    ushort oldStart = simStart;
+
                     // if we must resimulate, we have to scroll back further
                     // figure out how far behind ResimulateStartTimestamp is from ClientTime
-                    ushort simStart = ClientTime;
                     if (simStart > ushort.MaxValue / 2)
                     {
                         if (ResimulateStartTimestamp < simStart
@@ -594,152 +655,36 @@ namespace RelaNet.Snapshots
                         {
                             simStart = ResimulateStartTimestamp;
                             // calculating times is a bit trickier here due to rollover
-                            ticks += (ushort)(ClientTime + (ushort.MaxValue - ResimulateStartTimestamp));
+                            ticks += (ushort)(ClientTime + (ushort.MaxValue - ResimulateStartTimestamp) + 1);
                         }
                         // otherwise: ClientTime is older
                     }
 
-                    LoadTimestamp(simStart);
-                    Simulator.ClientAdvance(ticks, over);
-
                     ResimulateRequested = false;
+
+                    if (oldTicks > ticks)
+                    {
+                        // failsafe: if our previous start time was older, use that one instead
+                        // (this is the start time from our impulse)
+                        simStart = oldStart;
+                        ticks = oldTicks;
+                    }
                 }
-
-                // now we can tell our inputmanager to release our inputs from
-                // before ClientTime, since we won't need to resimulate that.
-                ushort releaseTime = clientStartTime;
-                while(releaseTime != ClientTime)
-                {
-                    for (int o = 0; o < InputManagerCount; o++)
-                        InputManagers[o].ClientReleaseInputs(releaseTime);
-
-                    if (releaseTime == ushort.MaxValue)
-                        releaseTime = 0;
-                    else
-                        releaseTime++;
-                }
-            }
-
-            /*todo; // VV obsolete
-            if (times > 0)
-            {
-                // now that currentTime has changed, we need to update all of our Sents
-                // because each Sent has a header which contains the time, and those 
-                // headers would now be outdated.
-                ForceAllNewSends();
-
-                todo; // if we're the client, we should be loading from last confirmed input
-                // receipt time rather than start time
-                // and if we're the server, we should be loading from whatever our input receipt
-                // cutoff time is (e.g. if we can't accept inputs older than 200ms or w/e)
-                // or, it'd be more efficient on serverside if we tracked input receipts
-                // and only backtracked for one round of simulation after receiving new inputs
-
-                todo; // actually this raises some interesting questions on the server side about
-                // simulation. If we need to await user inputs, where are we actually simulating?
-                // if we simulate once and then simulate again when new inputs arrive, it seems
-                // to imply that we'd be sending the same timestamp/snapshot twice. This would 
-                // probably severely fuck with our handshaking assumptions.
-
-                // it has to be simpler than that? or else we're kinda fucked
-                // contemplate this: client is rendering in future 100ms
-                // this means when they make an input at c=0ms
-                // it doesn't happen until s+100ms
-                // so their inputs have a 100ms time to arrive before we render
-                // as long as this holds, the server never needs to back-simulate
-                // instead, we just throw out inputs if they arrive too late.
-
-                // after we receive it and network it back to the client,
-                // they won't receive it until about c+160ms
-                // so in general they'll be simulating about 160ms of gameplay 
-                // every single frame (since last confirmed snapshot will always be 160ms behind)
-                // (is this true?)
-
-                // so, practicum: how do we apply this? 
-                // the client probably needs to track "server time" and its own "client time"
-                // and it can choose how far ahead its "client time" is (maybe server imposes
-                // a cap at 500ms to prevent clownery)
-                // its inputs will simply state what timestamp it's supposed to be and the 
-                // server will store them until that time.
-                // if client is especially laggy, it can extend client time
-
-                // meanwhile the server does no time trickery. it stays at pure +/-0 time
-                todo; // ^^ this sounds like a reasonable plan. let's do it
-
-                // does this work out though
-                // Client A fires at 0ms.
-                // they predictively create a projectile
-                // --> MASSIVE NOTE: how do we REMOVE the client's predictive
-                //                   projectile once the server's ACTUAL appears?
-                //                   they won't have same eid
-                //     IDEA: client predictions should always disappear after
-                //           100ms/clienttime gap. In good latency, they'll be 
-                //           seamlessly replaced by real objects
-                //     PRACTICUM: we need to create a client-prediction-entities
-                //                structure and system of some kind
-                todo; // ^^ SEE PRACTICUM
-
-                // the server processes this input at 100ms.
-                // it networks the projectile
-
-                // Client B receives the snapshot at 160ms
-                // they have a render delay of, say, 100ms,
-                // so B renders it starting at 200ms (the snapshot was for 100ms)
-                // --> How is this executed in practice?
-                //     so we don't render Snapshot 0 (made at +0ms) until +100ms
-                //     on the clientside. So the client is rendering server 
-                //     snapshots in the past.
-                //     BUT: it needs to render itself in the future...
-
-                // it seems like what we're working towards here is a division 
-                // between "server objects" and "client objects"
-                // client objects are rendered +100ms from servertime
-                // server objects are rendered -100ms from servertime
-
-                // this way our inputs seem to happen immediately
-                // and other player's objects have time for snapshots to arrive
-                // so that they move seamlessly
-
-                // but what do we do if you e.g. push another player character?
-                // they wouldn't get shoved for 200ms in this system, because
-                // they're "server objects"
-
-                // maybe all objects are rendered as client objects:
-                // 1. load all objects from snapshots of -100ms servertime
-                // 2. simulate forward 100ms with all current client inputs
-                // 3. objects that aren't impacted by our inputs won't move
-                // 4. objects that are impacted by our inputs will move predictvely
-
-                // on the server side, load all the most recent snapshots
-                // and process the inputs from 100ms ago
-                // more specifically:
-                // for each player process their inputs from their [clienttime]
-                // ago
-                todo; // this seems like my most plausible plan yet
                 
-                //LoadTimestamp(startTime);
-                //Simulator.Advance(times, TickMSTarget, Server.IsHost);
-                //if (!Server.IsHost)
-                //    Simulator.Render(TickMS, TickMSTarget);
-
-                if (!Server.IsHost)
+                // we must have at least one tick
+                if (ticks == 0)
                 {
-                    LoadTimestamp(ClientTime);
-
+                    ticks++;
+                    if (simStart == 0)
+                        simStart = ushort.MaxValue;
+                    else
+                        simStart--;
                 }
-                else
-                {
-                    LoadTimestamp(CurrentTime);
-
-                }
+                
+                // now kick off simulation
+                LoadTimestamp(simStart);
+                Simulator.ClientAdvance(ticks, over);
             }
-            else if (!Server.IsHost)
-            {
-                todo; // instead of loading from startTime... we should probably be loading
-                // from the last confirmed input receipt time to ensure proper resimulation
-                LoadTimestamp(startTime);
-                Simulator.Render(TickMS, TickMSTarget);
-            }*/
         }
 
         public int Receive(Receipt receipt, PlayerInfo pinfo, ushort eventid, int c)
@@ -960,7 +905,7 @@ namespace RelaNet.Snapshots
                 // todo: should we catch if this vv method returns false (failed ghost)?
                 // what would we even do there? crash? log it?
                 if (!Snappers[etype].UnpackGhostFirst(eid, receipt.Data, c, nlen, timestamp))
-                    Log("Failed to ghost snap entity 1:" + etype + ":" + eid + " with payload " + nlen);
+                    Log("Failed to ghost resent snap entity 1:" + etype + ":" + eid + " with payload " + nlen);
                 return c + nlen;
             }
             else if (eventid == EventResendSecondClass)
@@ -986,7 +931,7 @@ namespace RelaNet.Snapshots
                 // todo: should we catch if this vv method returns false (failed ghost)?
                 // what would we even do there? crash? log it?
                 if (!Snappers[etype].UnpackGhostSecond(eid, receipt.Data, c, nlen, timestamp))
-                    Log("Failed to ghost snap entity 2:" + etype + ":" + eid + " with payload " + nlen);
+                    Log("Failed to ghost resent snap entity 2:" + etype + ":" + eid + " with payload " + nlen);
                 return c + nlen;
             }
             // Deghost
@@ -1155,7 +1100,7 @@ namespace RelaNet.Snapshots
                 send.WriteUShort(EventClientInput);
                 send.WriteUShort(ClientInputTime);
                 send.WriteUShort(ClientInputTickMSushort);
-                ClientInputTickMSInputOffset += 100.0f;
+                ClientInputTickMSInputOffset += 0.01f;
                 ClientInputTickMSushort++; // important concept here:
                 // each time we write out an input, increment the tickms ushort by 1
                 // this ensures that our inputs are ordered properly.
@@ -1171,9 +1116,9 @@ namespace RelaNet.Snapshots
 
             // write the header for our requester
             send.WriteUShort(EventClientInput);
-            send.WriteUShort(ClientTime);
+            send.WriteUShort(ClientInputTime);
             send.WriteUShort(ClientInputTickMSushort);
-            ClientInputTickMSInputOffset += 100.0f;
+            ClientInputTickMSInputOffset += 0.01f;
             ClientInputTickMSushort++; // see above note on tickmsushort
             send.WriteByte(inputIndex);
             return send;
@@ -1232,6 +1177,8 @@ namespace RelaNet.Snapshots
 
         public void RequestResimulate(ushort timestamp)
         {
+            // todo: should verify that timestamp is within resimulate max window
+
             if (!ResimulateRequested)
             {
                 ResimulateRequested = true;
@@ -1257,6 +1204,36 @@ namespace RelaNet.Snapshots
                     ResimulateStartTimestamp = timestamp;
                 }
             }
+        }
+
+        // returns the confTimestamp for this simulateTimestamp
+        // this is the timestamp at which the server has confirmed our inputs
+        public ushort GetConfTimestamp()
+        {
+            ushort confTimestamp = SimulateTimestamp;
+            
+            int adj = (int)Math.Floor((ClientTickMSAdjustment * 2) / TickMSTarget);
+            adj += ClientConfAdjustment;
+            if (confTimestamp <= ushort.MaxValue - adj)
+                return (ushort)(confTimestamp + adj);
+            else
+                return (ushort)(adj - (ushort.MaxValue - confTimestamp));
+        }
+
+        public void MoveImpulseTimeUp()
+        {
+            // now we can tell our inputmanager to release our inputs from
+            // before ImpulseTime
+            ushort releaseTime = ClientImpulseTime;
+
+            for (int o = 0; o < InputManagerCount; o++)
+                InputManagers[o].ClientReleaseInputs(releaseTime);
+
+            // increments impulse time by 1
+            if (ClientImpulseTime == ushort.MaxValue)
+                ClientImpulseTime = 0;
+            else
+                ClientImpulseTime++;
         }
         #endregion Simulator Methods
 
@@ -1419,29 +1396,53 @@ namespace RelaNet.Snapshots
                     //    AnyBasisFirstClass / BasisTimestampsSecondClass
                     //    AnyBasisSecondClass
 
+                    // only update the basis if the new value is more recent
+                    // than the existing one
                     if (received)
                     {
                         for (int o = 0; o < sh.FirstEntityCount; o++)
                         {
+                            ushort oldTS = BasisTimestampsFirstClass[pid][sh.FirstEntities[o]];
+                            if (AnyBasisFirstClass[pid][sh.FirstEntities[o]] &&
+                                ((oldTS > sh.Timestamp && oldTS - sh.Timestamp < 512)
+                                || (oldTS < 512 && sh.Timestamp > ushort.MaxValue - 512)))
+                                continue;
                             BasisTimestampsFirstClass[pid][sh.FirstEntities[o]] = sh.Timestamp;
                             AnyBasisFirstClass[pid][sh.FirstEntities[o]] = true;
                         }
 
                         for (int o = 0; o < sh.SecondEntityCount; o++)
                         {
+                            ushort oldTS = BasisTimestampsSecondClass[pid][sh.SecondEntities[o]];
+                            if (AnyBasisSecondClass[pid][sh.SecondEntities[o]] &&
+                                ((oldTS > sh.Timestamp && oldTS - sh.Timestamp < 512)
+                                || (oldTS < 512 && sh.Timestamp > ushort.MaxValue - 512)))
+                                continue;
                             BasisTimestampsSecondClass[pid][sh.SecondEntities[o]] = sh.Timestamp;
                             AnyBasisSecondClass[pid][sh.SecondEntities[o]] = true;
                         }
 
                         for (int o = 0; o < sh.FirstResendsCount; o++)
                         {
-                            BasisTimestampsFirstClass[pid][sh.FirstResends[o]] = sh.FirstResendsTimestamp[o];
+                            ushort oldTS = BasisTimestampsFirstClass[pid][sh.FirstResends[o]];
+                            ushort newTS = sh.FirstResendsTimestamp[o];
+                            if (AnyBasisFirstClass[pid][sh.FirstResends[o]] &&
+                                ((oldTS > newTS && oldTS - newTS < 512)
+                                || (oldTS < 512 && newTS > ushort.MaxValue - 512)))
+                                continue;
+                            BasisTimestampsFirstClass[pid][sh.FirstResends[o]] = newTS;
                             AnyBasisFirstClass[pid][sh.FirstResends[o]] = true;
                         }
 
                         for (int o = 0; o < sh.SecondResendsCount; o++)
                         {
-                            BasisTimestampsSecondClass[pid][sh.SecondResends[o]] = sh.SecondResendsTimestamp[o];
+                            ushort oldTS = BasisTimestampsSecondClass[pid][sh.SecondResends[o]];
+                            ushort newTS = sh.SecondResendsTimestamp[o];
+                            if (AnyBasisSecondClass[pid][sh.SecondResends[o]] &&
+                                ((oldTS > newTS && oldTS - newTS < 512)
+                                || (oldTS < 512 && newTS > ushort.MaxValue - 512)))
+                                continue;
+                            BasisTimestampsSecondClass[pid][sh.SecondResends[o]] = newTS;
                             AnyBasisSecondClass[pid][sh.SecondResends[o]] = true;
                         }
                     }
@@ -1635,7 +1636,11 @@ namespace RelaNet.Snapshots
         private void ServerResendGhostFirst(byte pid, byte eid, byte etype, ushort timestamp)
         {
             ISnapper snapper = Snappers[etype];
-            byte nlen = snapper.PrepGhostFirst(eid, CurrentTime);
+            byte nlen = snapper.PrepGhostFirst(eid, timestamp);
+
+            if (nlen == 0)
+                return; // timestamp does not exist!
+
             int slen = 2 + 2 + 1 + 1 + 1 + nlen;
             Sent send = GetPlayerSent(pid, slen);
 
@@ -1654,7 +1659,11 @@ namespace RelaNet.Snapshots
         private void ServerResendGhostSecond(byte pid, ushort eid, byte etype, ushort timestamp)
         {
             ISnapper snapper = Snappers[etype];
-            byte nlen = snapper.PrepGhostSecond(eid, CurrentTime);
+            byte nlen = snapper.PrepGhostSecond(eid, timestamp);
+
+            if (nlen == 0)
+                return; // timestamp does not exist!
+
             int slen = 2 + 2 + 2 + 1 + 1 + nlen;
             Sent send = GetPlayerSent(pid, slen);
 

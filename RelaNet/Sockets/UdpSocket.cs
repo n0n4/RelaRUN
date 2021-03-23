@@ -245,6 +245,9 @@ namespace RelaNet.Sockets
         // Cleanup
         public void Close()
         {
+            if (NetLogger.On)
+                NetLogger.Log("Closing UdpSocket on " + Port);
+
             Closed = true;
             CancellationTokenSource.Cancel();
             try
