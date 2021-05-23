@@ -76,12 +76,20 @@ namespace RelaNet.Snapshots.Basic2d
             Logician.ClientPredictMS(tickms);
         }
 
-
+        public void ServerPreAdvance()
+        {
+            // Do nothing.
+        }
 
         public void ServerAdvance()
         {
             // run advance on each logician
             Logician.ServerAdvance();
+        }
+
+        public void ServerPostAdvance()
+        {
+            // Do nothing.
         }
     }
 }
