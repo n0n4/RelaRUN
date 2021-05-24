@@ -523,7 +523,9 @@ namespace RelaNet.Snapshots
                     ForceAllNewSends();
 
                     LoadTimestamp(CurrentTime);
+                    Simulator.ServerPreAdvance();
                     Simulator.ServerAdvance();
+                    Simulator.ServerPostAdvance();
                     // now we can tell our inputmanager to release all inputs
                     // from CurrentTime, since we won't need them anymore.
                     for (int o = 0; o < InputManagerCount; o++)
