@@ -127,7 +127,7 @@ namespace RelaNet.Messages
 
         public void RemoveTargetIndex(int index, bool skiphandshake)
         {
-             if (HandshakeCallback != null)
+            if (HandshakeCallback != null)
                 HandshakeCallback(TargetPids[index], TargetMessageId[index], !skiphandshake);
 
             if (AwaitingLength <= 1)
@@ -172,7 +172,7 @@ namespace RelaNet.Messages
         }
 
         public void LoadAckFromIndex(int targetIndex)
-        { 
+        {
             if (targetIndex != -1)
             {
                 // load the message id as well
@@ -247,6 +247,12 @@ namespace RelaNet.Messages
         public void WriteInt(int i)
         {
             Bytes.WriteInt(Data, i, Length); Length += 4;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void WriteUInt(uint u)
+        {
+            Bytes.WriteUInt(Data, u, Length); Length += 4;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
