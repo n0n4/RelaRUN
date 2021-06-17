@@ -16,7 +16,7 @@ namespace RelaNet.Utilities
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static ushort ReadUShort(byte[] msg, int index)
         {
-            if(BitConverter.IsLittleEndian)
+            if (BitConverter.IsLittleEndian)
                 return (ushort)(msg[index] | (msg[index + 1] << 8));
             return (ushort)((msg[index] << 8) | msg[index + 1]);
 
@@ -41,7 +41,24 @@ namespace RelaNet.Utilities
 
             //return BitConverter.ToUInt16(msg, index);
         }
-        
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteUInt(byte[] msg, uint val, int index)
+        {
+            msg[index] = (byte)val;
+            msg[index + 1] = (byte)(val >> 8);
+            msg[index + 2] = (byte)(val >> 16);
+            msg[index + 3] = (byte)(val >> 24);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static uint ReadUInt(byte[] msg, int index)
+        {
+            if (BitConverter.IsLittleEndian)
+                return (uint)(msg[index] | (msg[index + 1] << 8) | (msg[index + 2] << 16) | (msg[index + 3] << 24));
+            return (uint)((msg[index] << 24) | (msg[index + 1] << 16) | (msg[index + 2] << 8) | msg[index + 3]);
+        }
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void WriteFloat(byte[] msg, float val, int index)
         {
@@ -111,7 +128,7 @@ namespace RelaNet.Utilities
                 s = string.Empty;
             byte[] valinbytes = Encoding.UTF8.GetBytes(s.Replace('\0', ' ') + "\0"); // note we add null character to end of string, making
                                                                                      // this a null-terminated string
-            if (valinbytes.Length + index > msg.Length) 
+            if (valinbytes.Length + index > msg.Length)
             {
                 throw new Exception("Not enough space to write String!");
             }
