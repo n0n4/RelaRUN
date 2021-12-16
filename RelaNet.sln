@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 15
-VisualStudioVersion = 15.0.28307.1000
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.31702.278
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RelaNet", "RelaNet\RelaNet.csproj", "{46733171-7364-44EA-BFB6-98AA1B1892D8}"
 EndProject
@@ -26,6 +26,10 @@ EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RelaNet.Snapshots.UT", "RelaNet.Snapshots.UT\RelaNet.Snapshots.UT.csproj", "{1EE9E13D-61BB-49F1-889C-05FC65E7DD8C}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RelaNet.Snapshots.PerfTest", "RelanNet.Snapshots.PerfTest\RelaNet.Snapshots.PerfTest.csproj", "{967519EC-CFB0-4D8F-B278-8FFCD1DD31A4}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RelaNet.PackGen", "RelaNet.PackGen\RelaNet.PackGen.csproj", "{0303DBE3-CFA4-4DC4-9682-B62370BFD499}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RelaNet.PackGen.UT", "RelaNet.PackGen.UT\RelaNet.PackGen.UT.csproj", "{BA16A9C1-2FC5-406D-BE85-952DA0B93811}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -77,6 +81,14 @@ Global
 		{967519EC-CFB0-4D8F-B278-8FFCD1DD31A4}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{967519EC-CFB0-4D8F-B278-8FFCD1DD31A4}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{967519EC-CFB0-4D8F-B278-8FFCD1DD31A4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0303DBE3-CFA4-4DC4-9682-B62370BFD499}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0303DBE3-CFA4-4DC4-9682-B62370BFD499}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0303DBE3-CFA4-4DC4-9682-B62370BFD499}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0303DBE3-CFA4-4DC4-9682-B62370BFD499}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BA16A9C1-2FC5-406D-BE85-952DA0B93811}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BA16A9C1-2FC5-406D-BE85-952DA0B93811}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BA16A9C1-2FC5-406D-BE85-952DA0B93811}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BA16A9C1-2FC5-406D-BE85-952DA0B93811}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -87,6 +99,7 @@ Global
 		{180DCE81-54B3-4129-8EE0-035A09E027BE} = {89F2A87D-4668-47F5-A2B4-970EB2D3FB4E}
 		{0B6A4349-FA7B-4E4D-9724-DC70C87FBE8D} = {89F2A87D-4668-47F5-A2B4-970EB2D3FB4E}
 		{1EE9E13D-61BB-49F1-889C-05FC65E7DD8C} = {89F2A87D-4668-47F5-A2B4-970EB2D3FB4E}
+		{BA16A9C1-2FC5-406D-BE85-952DA0B93811} = {89F2A87D-4668-47F5-A2B4-970EB2D3FB4E}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {FCB066B4-88CB-4368-900E-3D81A496212E}

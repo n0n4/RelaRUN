@@ -101,14 +101,28 @@ namespace RelaNet.Utilities
             if (s == null)
                 s = string.Empty;
             // note that we filter null chars to avoid injection attacks
+            // TODO: this definitely creates garbage. We should find another way.
             s = s.Replace('\0', ' ') + "\0";
             return Encoding.UTF8.GetByteCount(s);
+        }
+
+        public static int GetStringsLength(string[] s)
+        {
+            if (s == null)
+                return 0;
+
+            int sum = 0;
+            for (int i = 0; i < s.Length; i++)
+                sum += GetStringLength(s[i]);
+
+            return sum;
         }
 
         public static int WriteString(byte[] msg, string s, int index)
         {
             if (s == null)
                 s = string.Empty;
+            // TODO: this replace definitely creates garbage. We should find another way.
             byte[] valinbytes = Encoding.UTF8.GetBytes(s.Replace('\0', ' ') + "\0"); // note we add null character to end of string, making
                                                                                      // this a null-terminated string
             if (valinbytes.Length + index > msg.Length) 
