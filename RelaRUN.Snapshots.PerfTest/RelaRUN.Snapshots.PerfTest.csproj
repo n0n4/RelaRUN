@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>netcoreapp2.1</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RelaRUN.Snapshots.UT\RelaRUN.Snapshots.UT.csproj" />
+    <ProjectReference Include="..\RelaRUN.Snapshots\RelaRUN.Snapshots.csproj" />
+    <ProjectReference Include="..\RelaRUN.Utilities\RelaRUN.Utilities.csproj" />
+    <ProjectReference Include="..\RelaRUN.UT\RelaRUN.UT.csproj" />
+    <ProjectReference Include="..\RelaRUN\RelaRUN.csproj" />
+  </ItemGroup>
+
+</Project>
