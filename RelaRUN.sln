@@ -25,15 +25,15 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RelaRUN.DynamicDatas.UT", "
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RelaRUN.Snapshots.UT", "RelaRUN.Snapshots.UT\RelaRUN.Snapshots.UT.csproj", "{1EE9E13D-61BB-49F1-889C-05FC65E7DD8C}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RelaRUN.Snapshots.PerfTest", "RelanNet.Snapshots.PerfTest\RelaRUN.Snapshots.PerfTest.csproj", "{967519EC-CFB0-4D8F-B278-8FFCD1DD31A4}"
-EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RelaRUN.PackGen", "RelaRUN.PackGen\RelaRUN.PackGen.csproj", "{0303DBE3-CFA4-4DC4-9682-B62370BFD499}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RelaRUN.PackGen.UT", "RelaRUN.PackGen.UT\RelaRUN.PackGen.UT.csproj", "{BA16A9C1-2FC5-406D-BE85-952DA0B93811}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RelaRUN.FlatSnap", "RelaRUN.FlatSnap\RelaRUN.FlatSnap.csproj", "{F280EA5E-B746-422E-835E-5604B5A44886}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RelaRUN.FlatSnap.UT", "RelaRUN.FlatSnap.UT\RelaRUN.FlatSnap.UT.csproj", "{B32300F7-BFA3-409E-BBE7-E0045249C62F}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RelaRUN.FlatSnap.UT", "RelaRUN.FlatSnap.UT\RelaRUN.FlatSnap.UT.csproj", "{B32300F7-BFA3-409E-BBE7-E0045249C62F}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RelaRUN.Snapshots.PerfTest", "RelaRUN.Snapshots.PerfTest\RelaRUN.Snapshots.PerfTest.csproj", "{046B7080-4E91-4310-B351-54AA791C8FE3}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -81,10 +81,6 @@ Global
 		{1EE9E13D-61BB-49F1-889C-05FC65E7DD8C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{1EE9E13D-61BB-49F1-889C-05FC65E7DD8C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{1EE9E13D-61BB-49F1-889C-05FC65E7DD8C}.Release|Any CPU.Build.0 = Release|Any CPU
-		{967519EC-CFB0-4D8F-B278-8FFCD1DD31A4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{967519EC-CFB0-4D8F-B278-8FFCD1DD31A4}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{967519EC-CFB0-4D8F-B278-8FFCD1DD31A4}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{967519EC-CFB0-4D8F-B278-8FFCD1DD31A4}.Release|Any CPU.Build.0 = Release|Any CPU
 		{0303DBE3-CFA4-4DC4-9682-B62370BFD499}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{0303DBE3-CFA4-4DC4-9682-B62370BFD499}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{0303DBE3-CFA4-4DC4-9682-B62370BFD499}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -101,6 +97,10 @@ Global
 		{B32300F7-BFA3-409E-BBE7-E0045249C62F}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B32300F7-BFA3-409E-BBE7-E0045249C62F}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B32300F7-BFA3-409E-BBE7-E0045249C62F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{046B7080-4E91-4310-B351-54AA791C8FE3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{046B7080-4E91-4310-B351-54AA791C8FE3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{046B7080-4E91-4310-B351-54AA791C8FE3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{046B7080-4E91-4310-B351-54AA791C8FE3}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

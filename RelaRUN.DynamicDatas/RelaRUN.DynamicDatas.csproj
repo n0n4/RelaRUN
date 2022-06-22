@@ -5,13 +5,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\RelaRUN\RelaRUN.csproj" />
+    <PackageReference Include="RelaStructures" Version="1.0.0" />
   </ItemGroup>
 
   <ItemGroup>
-    <Reference Include="RelaStructures">
-      <HintPath>..\ExternalDLLs\RelaStructures.dll</HintPath>
-    </Reference>
+    <ProjectReference Include="..\RelaRUN\RelaRUN.csproj" />
   </ItemGroup>
 
 </Project>
