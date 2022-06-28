@@ -1,7 +1,13 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
+    <Authors>n0n4</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Description>.NET networking for real-time, multiplayer games</Description>
+    <PackageProjectUrl>https://github.com/n0n4/RelaRUN</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/n0n4/RelaRUN</RepositoryUrl>
+    <PackageTags>Networking</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

@@ -2,6 +2,12 @@
 
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
+    <Authors>n0n4</Authors>
+    <Description>Helper classes for the RelaRUN framework</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Product>RelaRUN.Utilities</Product>
+    <PackageProjectUrl>https://github.com/n0n4/RelaRUN</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/n0n4/RelaRUN</RepositoryUrl>
   </PropertyGroup>
 
 </Project>
